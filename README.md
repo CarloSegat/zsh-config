@@ -1,0 +1,3 @@
+# ZSH-Config
+- .zshrc
+- .zfunc/

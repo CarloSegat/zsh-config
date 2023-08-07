@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # this custom zsh function takes as argument a commit message and then adds everything, commits and pushes
-
+# add . instead of *
 git add .
 git ci -m "$1"
 git push

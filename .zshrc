@@ -122,6 +122,18 @@ PROMPT='%F{cyan}%f%F{green}%n%f ${vcs_info_msg_0_} %B%F{blue}%1~%f%b $ '
 export PLAYDATE_SDK_PATH="/Users/carlosegat/Developer/PlaydateSDK"
 export PATH=$PATH:$PLAYDATE_SDK_PATH/bin
 
+
+# Linux specific configuration
+isLinux=$(uname -s)
+if [[ $isLinux=="Linux" ]]; then
+    export PATH=$PATH:"/opt/Postman/"
+    export PATH="$PATH:/opt/blender/"
+    xmodmap ~/.Xmodmap
+else
+    echo "it's not linux"
+fi
+
+
 git config --global alias.co checkout
 git config --global alias.br branch
 git config --global alias.ci commit
@@ -140,6 +152,7 @@ else
     if [ -f "/opt/anaconda3/etc/profile.d/conda.sh" ]; then
         . "/opt/anaconda3/etc/profile.d/conda.sh"
     else
+	# adds conda to the path
         export PATH="/opt/anaconda3/bin:$PATH"
     fi
 fi
@@ -151,3 +164,6 @@ fpath=( ~/.zfunc "${fpath[@]}" )
 autoload -Uz git_add_commit_push
 autoload -Uz cobsu
 autoload -Uz format_python_file_black
+autoload -Uz vimconfig
+
+

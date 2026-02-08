@@ -1,0 +1,25 @@
+[opener]
+edit = [
+    { run = 'nvim "$@"', block = true, desc = "Edit file" }
+]
+system = [
+    { run = 'open "$@"', orphan = true, desc = "System Open" }
+]
+teleport = [
+    { run = 'nvim "$@"', block = true, desc = "Edit file" }
+]
+
+[open]
+prepend_rules = [
+    { mime = "inode/directory", use = "open" },
+    # Media & Documents (Images, Video, Audio, PDF)
+    { mime = "{image,audio,video}/*", use = "system" },
+    { mime = "application/pdf", use = "system" },
+
+    # The Catch-all (Default to Neovim)
+    { name = "*", use = "edit" }
+]
+
+
+[manager]
+show_hidden = true

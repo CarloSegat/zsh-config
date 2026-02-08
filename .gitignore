@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Editor swap/backup files
+*.swp
+*.swo
+*~
+*.bak
+
+# Tmux plugins (managed by TPM)
+tmux/plugins/
+
+# Neovim plugins (managed by plugin manager)
+nvim/bundle/
+
+# Neovim binary spellfile
+nvim/*.spl
+
+# CoC runtime state
+coc/memos.json
+
+# Wireshark (auto-regenerated on quit)
+wireshark/recent
+wireshark/recent_common
+
+# GTK (auto-generated)
+gtk-2.0/
+
+# Zsh runtime files
+zsh/.zsh_history
+zsh/.zcompdump*
+zsh/.zsh_sessions/

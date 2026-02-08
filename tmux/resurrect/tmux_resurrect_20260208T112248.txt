@@ -1,0 +1,18 @@
+pane	0	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~	:/Users/carlosegat	1	zsh	:
+pane	0	1	1	:*	1	carlosegat@Carlos-MacBook-Air-928:~	:/Users/carlosegat	0	zsh	:
+pane	10	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/REPOS/emoji-game-godot	:/Users/carlosegat/REPOS/emoji-game-godot	1	zsh	:
+pane	2	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/REPOS/go-exercises	:/Users/carlosegat/REPOS/go-exercises	1	zsh	:
+pane	3	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~	:/Users/carlosegat	1	zsh	:
+pane	4	1	1	:*	0	nvim /Users/carlosegat/.config/yazi/yazi.toml	:/Users/carlosegat	1	nvim	:nvim /Users/carlosegat/.config/yazi/yazi.toml
+pane	4	1	1	:*	1	nvim README.md	:/Users/carlosegat/.config	0	nvim	:nvim README.md
+pane	4	1	1	:*	2	carlosegat@Carlos-MacBook-Air-928:~/.config/wezterm	:/Users/carlosegat/.config/wezterm	0	zsh	:
+pane	configs	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/.config	:/Users/carlosegat/.config	0	zsh	:
+pane	configs	1	1	:*	1	carlosegat@Carlos-MacBook-Air-928:~/.config/tmux/resurrect	:/Users/carlosegat/.config/tmux/resurrect	1	zsh	:
+pane	configs	1	1	:*	2	:/Users/carlosegat/.config/tmux	0	yazi	3322	:yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.iMvAawNB6a
+window	0	1	:zsh	1	:*	fe9f,80x23,0,0[80x15,0,0,1,80x7,0,16,2]	:
+window	10	1	:zsh	1	:*	ae60,80x23,0,0,3	:
+window	2	1	:zsh	1	:*	ae61,80x23,0,0,4	:
+window	3	1	:zsh	1	:*	ae62,80x23,0,0,5	:
+window	4	1	:nvim	1	:*	274e,80x23,0,0[80x8,0,0,6,80x14,0,9{40x14,0,9,7,39x14,41,9,8}]	:
+window	configs	1	:zsh	1	:*	449a,208x53,0,0{111x53,0,0[111x31,0,0,9,111x21,0,32,10],96x53,112,0,11}	:
+state	configs	4

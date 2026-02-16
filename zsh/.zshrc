@@ -124,6 +124,7 @@ fi
 
 alias n="nvim"
 alias r="reset"
+alias python='python3'
 
 # add folder .zfunc to list of folders that zsh is aware of to load functions from
 fpath=( ~/.zfunc "${fpath[@]}" )
@@ -171,6 +172,35 @@ function y() {
         builtin cd -- "$cwd"
     fi
     rm -f -- "$tmp"
+}
+
+# Search TEXT from Git Root
+function sf() {
+  # Find the git root, fallback to current dir if not in a repo
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+
+  echo "Searching text in: $root"
+
+  selected=$(rg --line-number --column --color=always "." "$root" | \
+    fzf --ansi --delimiter : \
+        --preview 'bat --color=always --highlight-line {2} {1}' \
+        --preview-window '~3,+{2}+3/2')
+
+  [ -n "$selected" ] && nvim $(echo "$selected" | cut -d: -f1) +$(echo "$selected" | cut -d: -f2)
+}
+
+# Find FILES from Git Root
+function ff() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+
+  echo "Finding files in: $root"
+
+  # fd automatically respects .gitignore by default!
+  selected=$(fd . "$root" --type f | fzf --preview 'bat --color=always {}')
+
+  [ -n "$selected" ] && nvim "$selected"
 }
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.

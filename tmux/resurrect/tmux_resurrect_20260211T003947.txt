@@ -1,0 +1,49 @@
+pane	6	1	1	:*	0	carlosegat@dock03:~/REPOS/BEAMERTEMP	:/Users/carlosegat/REPOS/BEAMERTEMP	1	zsh	:
+pane	dotconfs	1	1	:*	0	:/Users/carlosegat/.config/nvim	1	yazi	54668	:/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+-zsh
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+pane	dotconfs	1	1	:*	1	✳ Claude Code	:/Users/carlosegat/.config/nvim	0	2.1.38	:claude
+pane	emojigodot	1	1	:*	0	Yazi: ~/REPOS/emoji-game-godot/entities	:/Users/carlosegat/REPOS/emoji-game-godot/entities	0	yazi	:yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.AfX5DC2i26
+pane	emojigodot	1	1	:*	1	carlosegat@Carlos-MacBook-Air-928:~/REPOS/emoji-game-godot	:/Users/carlosegat/REPOS/emoji-game-godot	1	zsh	:
+pane	emojigodot	2	0	:-	0	✳ Avoidance Layers Configuration	:/Users/carlosegat/REPOS/emoji-game-godot	1	2.1.37	:claude
+pane	mobileapptodo	1	0	:-	0	:/Users/carlosegat/REPOS/todo-mobile-app	0	yazi	69032	:/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.w76vmWIk3m
+nvim /Users/carlosegat/REPOS/todo-mobile-app/README.md
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.fFk8j4r28x
+pane	mobileapptodo	1	0	:-	1	Yazi: ~/REPOS/todo-mobile-app/shared/build/bin/iosSimulatorArm64/debugFramework	:/Users/carlosegat/REPOS/todo-mobile-app/shared/build/bin/iosSimulatorArm64/debugFramework	0	yazi	:yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.fFk8j4r28x
+pane	mobileapptodo	1	0	:-	2	✳ Execute Refactors	:/Users/carlosegat/REPOS/todo-mobile-app	1	2.1.37	:claude
+pane	mobileapptodo	2	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/REPOS/todo-mobile-app	:/Users/carlosegat/REPOS/todo-mobile-app	1	zsh	:
+pane	solidity	1	0	:-	0	carlosegat@Carlos-MacBook-Air-928:~/REPOS/did-gov-carlo/measurements/data_generators	:/Users/carlosegat/REPOS/did-gov-carlo/measurements/data_generators	1	zsh	:/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python
+pane	solidity	1	0	:-	1	✳ Bloom Authorizer Evaluation	:/Users/carlosegat/REPOS/did-gov-carlo	0	2.1.37	:claude
+pane	solidity	1	0	:-	2	Yazi: ~/REPOS/did-gov-carlo/measurements	:/Users/carlosegat/REPOS/did-gov-carlo/measurements	0	yazi	:yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.s6bUnHsOdb
+pane	solidity	2	1	:*	0	nvim	:/Users/carlosegat/REPOS/did-gov-carlo	1	nvim	:nvim
+pane	tex	1	1	:*Z	0	carlosegat@eduroam-141-23-168-45:~/REPOS/BEAMERTEMP/img	:/Users/carlosegat/REPOS/BEAMERTEMP/img	0	zsh	:
+pane	tex	1	1	:*Z	1	:/Users/carlosegat/REPOS/BEAMERTEMP	1	yazi	43230	:nvim /Users/carlosegat/.config/nvim/init.vim
+node /Users/carlosegat/.nvm/versions/node/v18.20.4/bin/typescript-language-server --stdio
+/Users/carlosegat/.nvm/versions/node/v18.20.4/bin/node /Users/carlosegat/.nvm/versions/node/v18.20.4/lib/node_modules/typescript/lib/tsserver.js --serverMode partialSemantic --useInferredProjectPerProjectRoot --disableAutomaticTypingAcquisition --cancellationPipeName /private/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/fd773ebe995a98d5d3d821c7f9b7f453/tscancellation* --locale en --validateDefaultNpmLocation --useNodeIpc
+/Users/carlosegat/.nvm/versions/node/v18.20.4/bin/node /Users/carlosegat/.nvm/versions/node/v18.20.4/lib/node_modules/typescript/lib/tsserver.js --useInferredProjectPerProjectRoot --cancellationPipeName /private/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/4bb5ccae851f1656cfb8e019083159a6/tscancellation* --locale en --validateDefaultNpmLocation --useNodeIpc
+/Users/carlosegat/.nvm/versions/node/v18.20.4/bin/node /Users/carlosegat/.nvm/versions/node/v18.20.4/lib/node_modules/typescript/lib/typingsInstaller.js --globalTypingsCacheLocation /Users/carlosegat/Library/Caches/typescript/5.8 --typesMapLocation /Users/carlosegat/.nvm/versions/node/v18.20.4/lib/node_modules/typescript/lib/typesMap.json --validateDefaultNpmLocation
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+/bin/sh ./watch_compile.sh
+fswatch -o main.tex img carlo_template
+/bin/sh ./watch_compile.sh
+/opt/homebrew/opt/perl/bin/perl /opt/homebrew/bin/latexmk -pdf main.tex
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.WNgrMkfhpF
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+tmux a -t dotconfs
+pane	tex	2	0	:-	0	./watch_compile.sh	:/Users/carlosegat/REPOS/BEAMERTEMP	1	bash	:/bin/sh ./watch_compile.sh
+window	6	1	:zsh	1	:*	5ff6,144x16,0,0,17	:
+window	dotconfs	1	:zsh	1	:*	1090,170x48,0,0{87x48,0,0,0,82x48,88,0,1}	off
+window	emojigodot	1	:zsh	1	:*	9185,170x45,0,0[170x33,0,0,2,170x11,0,34,3]	:
+window	emojigodot	2	:2.1.37	0	:-	c041,170x45,0,0,4	:
+window	mobileapptodo	1	:2.1.37	0	:-	d1c3,170x45,0,0{85x45,0,0,5,84x45,86,0[84x22,86,0,6,84x22,86,23,8]}	:
+window	mobileapptodo	2	:zsh	1	:*	604f,170x45,0,0,10	:
+window	solidity	1	:zsh	0	:-	4ea5,170x47,0,0{85x47,0,0[85x23,0,0,11,85x23,0,24,13],84x47,86,0,12}	:
+window	solidity	2	:nvim	1	:*	6654,170x48,0,0,15	:
+window	tex	1	:main.tex	1	:*Z	d2ce,170x48,0,0{80x48,0,0,18,89x48,81,0,20}	off
+window	tex	2	:watch compile	0	:-	e450,170x47,0,0,21	off
+state	tex	

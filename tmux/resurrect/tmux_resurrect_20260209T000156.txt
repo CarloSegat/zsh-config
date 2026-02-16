@@ -1,0 +1,19 @@
+pane	dotconfs	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/.config/tmux/resurrect	:/Users/carlosegat/.config/tmux/resurrect	1	zsh	:
+pane	dotconfs	1	1	:*	1	carlosegat@Carlos-MacBook-Air-928:~	:/Users/carlosegat	0	zsh	:
+pane	emojigodot	1	1	:*	0	Yazi: ~/REPOS/emoji-game-godot/entities	:/Users/carlosegat/REPOS/emoji-game-godot/entities	0	yazi	:yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.AfX5DC2i26
+pane	emojigodot	1	1	:*	1	carlosegat@Carlos-MacBook-Air-928:~/REPOS/emoji-game-godot	:/Users/carlosegat/REPOS/emoji-game-godot	1	zsh	:
+pane	emojigodot	2	0	:-	0	✳ Avoidance Layers Configuration	:/Users/carlosegat/REPOS/emoji-game-godot	1	2.1.37	:claude
+pane	mobileapptodo	1	0	:-	0	:/Users/carlosegat/REPOS/todo-mobile-app	0	yazi	69032	:/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.w76vmWIk3m
+nvim /Users/carlosegat/REPOS/todo-mobile-app/README.md
+/Users/carlosegat/.cache/gitstatus/gitstatusd-darwin-arm64 -G v1.5.4 -s -1 -u -1 -d -1 -c -1 -m -1 -v FATAL -t 16
+yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.fFk8j4r28x
+pane	mobileapptodo	1	0	:-	1	Yazi: ~/REPOS/todo-mobile-app/shared/build/bin/iosSimulatorArm64/debugFramework	:/Users/carlosegat/REPOS/todo-mobile-app/shared/build/bin/iosSimulatorArm64/debugFramework	0	yazi	:yazi --cwd-file=/var/folders/8d/hvv63s2n4r9btz3j1tzn09gm0000gn/T/yazi-cwd.XXXXXX.fFk8j4r28x
+pane	mobileapptodo	1	0	:-	2	✳ Execute Refactors	:/Users/carlosegat/REPOS/todo-mobile-app	1	2.1.37	:claude
+pane	mobileapptodo	2	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/REPOS/todo-mobile-app	:/Users/carlosegat/REPOS/todo-mobile-app	1	zsh	:
+window	dotconfs	1	:zsh	1	:*	c29f,170x44,0,0{86x44,0,0,0,83x44,87,0,1}	off
+window	emojigodot	1	:zsh	1	:*	9185,170x45,0,0[170x33,0,0,2,170x11,0,34,3]	:
+window	emojigodot	2	:2.1.37	0	:-	c041,170x45,0,0,4	:
+window	mobileapptodo	1	:2.1.37	0	:-	d1c3,170x45,0,0{85x45,0,0,5,84x45,86,0[84x22,86,0,6,84x22,86,23,8]}	:
+window	mobileapptodo	2	:zsh	1	:*	604f,170x45,0,0,10	:
+state	mobileapptodo	

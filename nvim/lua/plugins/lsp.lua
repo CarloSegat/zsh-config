@@ -34,13 +34,19 @@ return {
                 },
             })
 
+            vim.lsp.config("solidity_ls_nomicfoundation", {
+                cmd = { "nomicfoundation-solidity-language-server", "--stdio" },
+                filetypes = { "solidity" },
+                root_markers = { "foundry.toml", "hardhat.config.js", "hardhat.config.ts", "remappings.txt", ".git" },
+                single_file_support = true,
+            })
+
             -- 4. Enable all your LSP servers
             vim.lsp.enable({
                 "pyright",
                 "ts_ls",
                 "lua_ls",
                 "texlab",
-                "solidity",
                 "solidity_ls_nomicfoundation",
                 "gdscript",
             })

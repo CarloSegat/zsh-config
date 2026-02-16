@@ -96,7 +96,8 @@ hi clear SpellBad
 " hi clear SpellCap
 " hi clear SpellRare
 hi clear SpellLocal
-hi SpellBad cterm=underline ctermfg=red
+hi SpellBad cterm=underline ctermfg=red gui=undercurl guisp=red
+hi SpellLocal cterm=underline ctermfg=blue gui=undercurl guisp=blue
 
 " git-fugitive highlights
 hi DiffRemoved ctermfg=red
@@ -112,28 +113,18 @@ nnoremap <leader>tsi :read ~/.config/nvim/snippets/typescript/print.ts<Cr>t$pt}p
 " ------ Plugins ------
 call plug#begin('~/.config/nvim/bundle') " where plugins are stored
 
-Plug 'neoclide/coc.nvim', {'branch': 'release'}
 set nowritebackup
 set updatetime=100
-" Use tab for trigger completion
-" NOTE: Use command ':verbose imap <tab>' to make sure tab is not mapped by
-" other plugin before putting this into your config.
-" inoremap = insermode, no recursive remapping
-" <silent> = Suppresses any output or echoing to the command line when the mapping is triggered.
-" <expr> = Treats RHS of mapping as expression to evaluate dynamically, rather literal
-" coc#pum#visible() is a function call in vimscript. It calls the visible
-" function in the coc#pum namespace (pum=pop-up menu). It checks if the pop-up
-" is open
-" the \<Tab> escapes the <Tab> so that it's interpreted as a character and not
-" as a command
-inoremap <silent><expr> <TAB> coc#pum#visible() ? coc#pum#next(1) : "\<Tab>"
-inoremap <expr><S-TAB> coc#pum#visible() ? coc#pum#prev(1) : "\<C-h>"
-" GoTo code navigation.
-nmap <silent> gd <Plug>(coc-definition)
-nmap <silent> gy <Plug>(coc-type-definition)
-nmap <silent> gi <Plug>(coc-implementation)
-nmap <silent> gr <Plug>(coc-references)
-nnoremap <leader>rn <Plug>(coc-rename)
+
+" The 'Engine' (Native LSP configs)
+Plug 'neovim/nvim-lspconfig'
+
+" autocompletion
+Plug 'Saghen/blink.cmp'
+
+" The 'Mechanic' (Package manager for LSPs)
+Plug 'williamboman/mason.nvim'
+Plug 'williamboman/mason-lspconfig.nvim'
 
 " the return key can be used to say yes to autoimport suggestion if you see it
 " "\<C-y> Inserts the Ctrl-Y keystroke
@@ -141,20 +132,11 @@ nnoremap <leader>rn <Plug>(coc-rename)
 " it will only undo from this point onward,
 inoremap <expr> <cr> pumvisible() ? "\<C-y>" : "\<C-g>u\<CR>"
 
-" ------ LANGUAGE SERVERS ------
-" Python
-Plug 'fannheyward/coc-pyright', {'do': 'yarn install --frozen-lockfile'}
-" typscript
-Plug 'neoclide/coc-tsserver', {'do': 'yarn install --frozen-lockfile'}
-
 " ----- VIM INDENT OBJECT
 " <command expecting motion>ai (includes line above=
 " <command expecting motion>ii (only current indentation level and nested)
 " you can keep pressing ii to EXTEND the selection to outer indentation levels
 Plug 'michaeljsmith/vim-indent-object'
-
-" ----- NERD TREE -----
-" Plug 'scrooloose/nerdtree'
 
 " ----- VIM SURROUND -----
 " change surroundings cs
@@ -168,6 +150,9 @@ Plug 'michaeljsmith/vim-indent-object'
 Plug 'tpope/vim-surround'
 
 Plug 'tpope/vim-fugitive'
+
+" for minus and plus signs if you open a changed file
+Plug 'lewis6991/gitsigns.nvim'
 
 " fzf is a fuzzy file finder
 " it can find files by name or content
@@ -187,3 +172,53 @@ nnoremap <C-p> :Files<Cr>
 nnoremap <C-k>k :Ag<Cr>
 " below fixes Ag failing
 let $FZF_DEFAULT_COMMAND=""
+
+lua << EOF
+-- 1. Setup Mason
+require("mason").setup()
+
+require('blink.cmp').setup({
+  keymap = {
+    -- We'll start with the 'default' preset and then add our overrides
+    preset = 'default',
+
+    ['<CR>'] = { 'accept', 'fallback' }, -- Enter to accept
+  },
+
+  -- Recommended: Disable "auto_insert" so J/K don't accidentally
+  -- type into the buffer while you are scrolling the list
+  completion = {
+    list = { selection = { preselect = true, auto_insert = false } }
+  }
+})
+
+-- 2. Setup Mason-LSPConfig
+require("mason-lspconfig").setup({
+    -- Put the LSPs you want here
+    ensure_installed = {
+	"lua_ls",
+	"pyright",
+	"ts_ls",
+	"texlab",
+	"solidity_ls_nomicfoundation",
+    }
+})
+
+-- Define custom settings/overrides
+vim.lsp.config('pyright', {
+    settings = {
+        python = { analysis = { autoSearchPaths = true } }
+    }
+})
+
+-- Enable the servers
+vim.lsp.enable({
+    'pyright',
+    'ts_ls',
+    'lua_ls',
+    'texlab',
+    'solidity',
+    'solidity_ls_nomicfoundation',
+    'gdscript'
+})
+EOF

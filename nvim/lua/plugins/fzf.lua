@@ -11,7 +11,7 @@ return {
         -- Only load when you press Ctrl-P (files) or Ctrl-K K (grep)
         keys = {
             { "<C-p>", ":Files<CR>", desc = "FZF: find files by name" },
-            { "<C-k>k", ":Ag<CR>", desc = "FZF: search file contents (ag)" },
+            { "<C-s>", ":Rg<CR>", desc = "FZF: search file contents (rg)" },
         },
     },
 }

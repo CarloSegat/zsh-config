@@ -5,18 +5,10 @@ local map = vim.keymap.set
 -- ── Escape shortcuts ──────────────────────────────────────────────
 -- jj exits insert mode (faster than reaching for Esc)
 map("i", "jj", "<Esc>", { desc = "Exit insert mode" })
--- jj also exits terminal mode (works for all terminal entry methods)
-map("t", "jj", [[<C-\><C-n>]], { desc = "Exit terminal mode" })
 
 -- ── Command mode shortcut ─────────────────────────────────────────
 -- Space Space opens the command line (like pressing :)
 map("n", "<Space><Space>", ":", { desc = "Command mode" })
-
--- ── Splits ────────────────────────────────────────────────────────
-map("n", "<leader>s", ":split<CR>", { desc = "Horizontal split" })
-map("n", "<leader>vs", ":vsplit<CR>", { desc = "Vertical split" })
-map("n", "<leader>vt", ":vsplit term://zsh<CR>", { desc = "Vertical terminal split" })
-map("n", "<leader>ht", ":split term://zsh<CR>", { desc = "Horizontal terminal split" })
 
 -- ── Movement ──────────────────────────────────────────────────────
 -- H/L jump to first/last non-blank character on the line
@@ -44,14 +36,3 @@ map("i", "<CR>", function()
         return "<C-g>u<CR>"
     end
 end, { expr = true, desc = "Accept completion or newline" })
-
--- ── Snippets ──────────────────────────────────────────────────────
--- ,pp  — Insert a Python print() with the yanked variable
-map("n", "<leader>pp",
-    ":read ~/.config/nvim/snippets/python/printf.py<CR>t{pt}pk0y^jP",
-    { desc = "Python print snippet" })
-
--- ,tsi — Insert a TypeScript console.log with the yanked variable
-map("n", "<leader>tsi",
-    ":read ~/.config/nvim/snippets/typescript/print.ts<CR>t$pt}p",
-    { desc = "TS console.log snippet" })

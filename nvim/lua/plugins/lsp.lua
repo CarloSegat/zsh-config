@@ -24,6 +24,7 @@ return {
                     "ts_ls",
                     "texlab",
                     "solidity_ls_nomicfoundation",
+                    "ltex",
                 },
             })
 
@@ -41,6 +42,22 @@ return {
                 single_file_support = true,
             })
 
+            vim.lsp.config("ltex", {
+                filetypes = { "markdown", "tex", "text", "gitcommit" },
+                settings = {
+                    ltex = {
+                        language = "en-US",
+                        additionalRules = {
+                            enablePickyRules = false, -- Disable strict checking for technical writing
+                            motherTongue = "en-US",
+                        },
+                        -- Add Italian and German for multilingual support
+                        -- To switch language: :lua vim.lsp.buf.execute_command({command = "_ltex.changeLanguage", arguments = {"de"}})
+                        enabled = { "en-US", "it", "de" },
+                    },
+                },
+            })
+
             -- 4. Enable all your LSP servers
             vim.lsp.enable({
                 "pyright",
@@ -49,6 +66,7 @@ return {
                 "texlab",
                 "solidity_ls_nomicfoundation",
                 "gdscript",
+                "ltex",
             })
         end,
     },

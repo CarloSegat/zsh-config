@@ -1,4 +1,0 @@
-[mgr]
-prepend_keymap = [
-  { on   = [ "t", "e" ], run = "shell 'tmux new-window nvim %h'", desc = "nvim hovered file" },
-]

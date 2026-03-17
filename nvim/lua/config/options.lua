@@ -25,6 +25,7 @@ vim.opt.hlsearch = true    -- Highlight all search matches
 -- File handling
 vim.opt.swapfile = false      -- Don't create .swp files
 vim.opt.writebackup = false   -- Don't create backup before overwriting
+vim.opt.autoread = true       -- Reload buffer when file changes on disk
 
 -- Folding — open files unfolded
 vim.opt.foldenable = false

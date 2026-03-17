@@ -203,5 +203,7 @@ function ff() {
   [ -n "$selected" ] && nvim "$selected"
 }
 
+eval "$(zoxide init zsh)"
+
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.config/p10k/p10k.zsh ]] || source ~/.config/p10k/p10k.zsh

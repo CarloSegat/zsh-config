@@ -5,21 +5,17 @@ edit = [
 system = [
     { run = 'open "$@"', orphan = true, desc = "System Open" }
 ]
-teleport = [
-    { run = 'nvim "$@"', block = true, desc = "Edit file" }
+drawio = [
+    { run = 'open -a "draw.io" "$@"', orphan = true, desc = "Open in draw.io" }
 ]
 
 [open]
 prepend_rules = [
-    { mime = "inode/directory", use = "open" },
-    # Media & Documents (Images, Video, Audio, PDF)
+    { url = "*.drawio", use = "drawio" },
     { mime = "{image,audio,video}/*", use = "system" },
     { mime = "application/pdf", use = "system" },
-
-    # The Catch-all (Default to Neovim)
-    { name = "*", use = "edit" }
+    { url = "*", use = "edit" },
 ]
 
-
-[manager]
+[mgr]
 show_hidden = true

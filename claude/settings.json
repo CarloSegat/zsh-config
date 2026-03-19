@@ -1,6 +1,9 @@
 {
   "permissions": {
     "allow": [
+      "Bash(find *)",
+      "Bash(find * | *)",
+      "Bash(find * -exec grep * {} \\;)",
       "Read",
       "Glob",
       "Grep",
@@ -26,16 +29,8 @@
       "Bash(git show *)",
       "Bash(git branch *)",
       "Bash(git branch)"
-    ],
-    "deny": [
-      "Bash(rm *)",
-      "Bash(sudo *)",
-      "Bash(su *)",
-      "Bash(curl *)",
-      "Bash(wget *)",
-      "Bash(ssh *)",
-      "Read(**/.env)",
-      "Read(**/.env.*)"
     ]
-  }
+  },
+  "model": "opus",
+  "autoMemoryEnabled": false
 }

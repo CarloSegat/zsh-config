@@ -28,9 +28,17 @@
       "Bash(git diff)",
       "Bash(git show *)",
       "Bash(git branch *)",
-      "Bash(git branch)"
+      "Bash(git branch)",
+      "Bash(cp /Users/carlosegat/claude-image-cache/**)",
+      "Bash(file /Users/carlosegat/claude-image-cache/**)"
     ]
   },
-  "model": "opus",
-  "autoMemoryEnabled": false
+  "model": "opus[1m]",
+  "effortLevel": "max",
+  "autoMemoryEnabled": false,
+  "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "agentPushNotifEnabled": true,
+  "skipAutoPermissionPrompt": true,
+  "voiceEnabled": true
 }

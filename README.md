@@ -9,8 +9,13 @@ The `gtk-2.0/gtkfilechooser.ini` file configures the **file picker dialog** — 
 ## coc
 nvim language extensions
 
-## wezterm
-Terminal emulator
+## iterm2
+Terminal emulator (Catppuccin Mocha, JetBrains Mono + Nerd Font)
 
 ## yazi
 terminal file explorer
+
+## claude
+Global Claude Code config: `CLAUDE.md` (personal instructions), `settings.json`, `skills/`.
+Symlinked into `~/.claude/` per-file — `~/.claude/` itself stays a real dir because it holds
+hundreds of MB of session state.

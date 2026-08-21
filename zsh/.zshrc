@@ -96,13 +96,6 @@ source $ZSH/oh-my-zsh.sh
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
 
-# Load version control information
-autoload -Uz vcs_info
-precmd() { vcs_info }
-# Format the vcs_info_msg_0_ variable
-zstyle ':vcs_info:git:*' formats 'B:%b'
-
-
 # Allow substitutions and expansions in the prompt
 setopt prompt_subst
 
@@ -140,9 +133,6 @@ export CARGO_INCREMENTAL=1
 export RUST_LOG=indy=trace
 export RUST_TEST_THREADS=1
 
-export OPENSSL_DIR=/opt/homebrew/opt/openssl
-export OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl/include
-export OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl/lib
 
 
 export NVM_DIR="$HOME/.nvm"
@@ -150,20 +140,23 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 
-export OPENSSL_DIR=$(brew --prefix openssl)
-export OPENSSL_LIB_DIR=$(brew --prefix openssl)/lib
-export OPENSSL_INCLUDE_DIR=$(brew --prefix openssl)/include
+# Use hardcoded paths instead of slow $(brew --prefix) calls
+export OPENSSL_DIR=/opt/homebrew/opt/openssl
+export OPENSSL_LIB_DIR=/opt/homebrew/opt/openssl/lib
+export OPENSSL_INCLUDE_DIR=/opt/homebrew/opt/openssl/include
 
 export PATH="/Users/carlosegat/platform-tools:$PATH"
-export PATH="$PATH:$(go env GOPATH)/bin"
+export PATH="$PATH:$HOME/go/bin"
 
 export ipfs_data="/Users/carlosegat/ipfs_data"
 export ipfs_staging="/Users/carlosegat/ipfs_staging"
 
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 export PATH="$HOME/.local/bin:$PATH"
+export PATH="/Applications/flutter/bin:$PATH"
 export EDITOR="nvim"
 
+export PATH="$HOME/Library/Python/3.9/bin:$PATH"
 # open yazi with y and cd where you exit
 function y() {
     local tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
@@ -207,3 +200,5 @@ eval "$(zoxide init zsh)"
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.config/p10k/p10k.zsh ]] || source ~/.config/p10k/p10k.zsh
+
+source ~/.config/secrets

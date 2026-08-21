@@ -1,0 +1,211 @@
+tap "ethereum/ethereum"
+tap "hashicorp/tap"
+tap "kubeshark/kubeshark"
+tap "kurtosis-tech/tap"
+tap "majd/repo"
+tap "spring-io/tap"
+tap "ubuntu/microk8s"
+# New file format for still image compression
+brew "jpeg-xl"
+# Codec library for encoding and decoding AV1 video streams
+brew "aom"
+# Password hashing library and CLI utility
+brew "argon2"
+# Cryptography and SSL/TLS Toolkit
+brew "openssl@3"
+# Text processor and publishing toolchain for AsciiDoc
+brew "asciidoctor"
+# Automatic configure script builder
+brew "autoconf"
+# Tool for generating GNU Standards-compliant Makefiles
+brew "automake"
+# Bourne-Again SHell, a UNIX command interpreter
+brew "bash"
+# Clone of cat(1) with syntax highlighting and Git integration
+brew "bat"
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.12"
+# Cryptographic algorithms and formats library in C++
+brew "botan"
+# Core application library for C
+brew "glib"
+# Cross-platform make
+brew "cmake"
+# Good-lookin' diffs with diff-highlight and more
+brew "diff-so-fancy"
+# Run arbitrary commands when files change
+brew "entr"
+# Simple, fast and user-friendly alternative to find
+brew "fd"
+# Play, record, convert, and stream select audio and video codecs
+brew "ffmpeg"
+# Monitor a directory for changes and run a shell command
+brew "fswatch"
+# Command-line fuzzy finder written in Go
+brew "fzf"
+# OpenType text shaping engine
+brew "harfbuzz"
+# Library for JPEG-2000 image manipulation
+brew "openjpeg"
+# Framework for layout and rendering of i18n text
+brew "pango"
+# OCR (Optical Character Recognition) engine
+brew "tesseract"
+# Interpreter for PostScript and PDF
+brew "ghostscript"
+# GIF image/animation creator/editor
+brew "gifsicle"
+# Syntax-highlighting pager for git and diff output
+brew "git-delta"
+# GNU Privacy Guard (OpenPGP)
+brew "gnupg"
+# Open source programming language to build simple/reliable/efficient software
+brew "go"
+# Database migrations CLI tool
+brew "golang-migrate"
+# Fast linters runner for Go
+brew "golangci-lint"
+# Development kit for the Java programming language
+brew "openjdk"
+# Open-source build automation tool based on the Groovy and Kotlin DSL
+brew "gradle"
+# Kubernetes package manager
+brew "helm"
+# ISO/IEC 23008-12:2017 HEIF file format decoder and encoder
+brew "libheif"
+# Tools and libraries to manipulate images in select formats
+brew "imagemagick"
+# CLI tool for searching and downloading app packages from the iOS App Store
+brew "ipatool"
+# Lightweight and flexible command-line JSON processor
+brew "jq"
+# Environment diagnostics for Kotlin Multiplatform Mobile app development
+brew "kdoctor"
+# Easy way to access the system keyring service from python
+brew "keyring"
+# Simple terminal UI for git commands
+brew "lazygit"
+# Subtitle renderer for the ASS/SSA subtitle format
+brew "libass"
+# Library to communicate with iOS devices natively
+brew "libimobiledevice"
+# Development kit for the Java programming language
+brew "openjdk@21"
+# LSP for LanguageTool with support for Latex, Markdown and Others
+brew "ltex-ls"
+# Java-based project management
+brew "maven"
+# Solidity smart contract fuzzer powered by go-ethereum
+brew "medusa"
+# C library for zip/unzip via zLib
+brew "minizip"
+# Ambitious Vim-fork focused on extensibility and agility
+brew "neovim"
+# Open-source, cross-platform JavaScript runtime environment
+brew "node"
+# Open Visual Inference And Optimization toolkit for AI inference
+brew "openvino"
+# PNG file optimizer
+brew "optipng"
+# Multithreaded PNG optimizer written in Rust
+brew "oxipng"
+# Swiss-army knife of markup format conversion
+brew "pandoc"
+# Python dependency management tool
+brew "pipenv"
+# Package compiler and linker metadata toolkit
+brew "pkgconf"
+# Python package management tool
+brew "poetry"
+# PDF rendering library (based on the xpdf-3.0 code base)
+brew "poppler"
+# Object-relational database system
+brew "postgresql@14"
+# Object-relational database system
+brew "postgresql@17"
+# Show ps output as a tree
+brew "pstree"
+# Python version management
+brew "pyenv"
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.10"
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.11"
+# QR Code generation
+brew "qrencode"
+# Cross-platform application and UI framework
+brew "qt@5"
+# SVG rendering tool and library
+brew "resvg"
+# Search tool like grep and The Silver Searcher
+brew "ripgrep"
+# Embeddable, persistent key-value store for fast storage
+brew "rocksdb"
+# Rust toolchain installer
+brew "rustup"
+# 7-Zip is a file archiver with a high compression ratio
+brew "sevenzip"
+# Solidity static analysis framework written in Python 3
+brew "slither-analyzer"
+# Contract-oriented programming language
+brew "solidity"
+# Non-interactive SSH password auth
+brew "sshpass"
+# Free software distribution for the TeX typesetting system
+brew "texlive"
+# Code-search similar to ack
+brew "the_silver_searcher"
+# Terminal multiplexer
+brew "tmux"
+# Display directories as trees (with optional color/HTML output)
+brew "tree"
+# Development environment, testing framework and asset pipeline for Ethereum
+brew "truffle"
+# Tool for creating isolated virtual python environments
+brew "virtualenv"
+# Display word differences between text files
+brew "wdiff"
+# Generate your Xcode project from a spec file and your folder structure
+brew "xcodegen"
+# Blazing fast terminal file manager written in Rust, based on async I/O
+brew "yazi"
+# Feature-rich command-line audio/video downloader
+brew "yt-dlp"
+# High-performance, asynchronous messaging library
+brew "zeromq"
+# Shell extension to navigate your filesystem faster
+brew "zoxide"
+# UNIX shell (command interpreter)
+brew "zsh"
+# Compact TeX distribution as alternative to the full TeX Live / MacTeX
+cask "basictex"
+# Virtual Audio Driver
+cask "blackhole-2ch"
+# Automated testing of webapps for Google Chrome
+cask "chromedriver"
+cask "font-jetbrains-mono-nerd-font"
+cask "font-symbols-only-nerd-font"
+# Customise mouse behavior
+cask "linearmouse"
+# File system integration
+cask "macfuse"
+# Intercept, modify, replay, save HTTP/S traffic
+cask "mitmproxy"
+# Orchestrates virtual Ubuntu instances
+cask "multipass"
+# GPU-accelerated cross-platform terminal emulator and multiplexer
+cask "wezterm@nightly"
+go "github.com/tylertreat/comcast"
+go "golang.org/x/tools/cmd/goimports"
+go "golang.org/x/tools/gopls"
+go "honnef.co/go/tools/cmd/staticcheck"
+npm "@nomiclabs/hardhat-ethers"
+npm "@veramo/cli"
+npm "corepack"
+npm "ethers"
+npm "hardhat"
+npm "jsonld"
+npm "mr-pdf"
+npm "tailwindcss"
+npm "typescript-language-server"
+npm "typescript"

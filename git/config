@@ -1,0 +1,27 @@
+[alias]
+	co = checkout
+	br = branch
+	ci = commit
+	st = status
+[user]
+	name = Carlo Segat (TUB)
+	email = carlo.segat@tu-berlin.de
+[core]
+	pager = diff-so-fancy | less --tabs=4 -RFX
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true    # use n and N to move between diff sections
+    light = false      # set to true if you're in a light terminal theme
+    syntax-theme = Monokai Extended
+
+    # This handles the specific "intensity" you mentioned
+    minus-style = red italic           # The "lighter" red for the whole line
+    minus-emph-style = bold red 52     # The "darker/stronger" red for specific word changes
+    plus-style = green italic          # The "lighter" green for the line
+    plus-emph-style = bold green 22    # The "darker" green for specific word changes
+[diff]
+	renames = true
+	renameLimit = 1000

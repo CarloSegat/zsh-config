@@ -1,0 +1,16 @@
+model_list:
+
+  - model_name: deepinfra
+    litellm_params:
+      model: "deepinfra/MiniMaxAI/MiniMax-M2.5"
+      api_base: "https://api.deepinfra.com/v1"
+      api_key: os.environ/DEEPINFRA_API_KEY
+
+litellm_settings:
+  drop_params: true
+  set_streaming_fallback: true
+
+router_settings:
+  routing_strategy: simple-shuffle
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

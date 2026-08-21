@@ -1,0 +1,69 @@
+{
+    "explorer.confirmDelete": false,
+    "pasteImage.path": "${projectRoot}\\imgs",
+    "pasteImage.filePathConfirmInputBoxMode": "onlyName",
+    "pasteImage.showFilePathConfirmInputBox": true,
+    "pasteImage.basePath": "${projectRoot}\\imgs",
+    "pasteImage.forceUnixStyleSeparator": false,
+    "workbench.editorAssociations": {
+        "*.csv": "default"
+    },
+    "files.autoSave": "afterDelay",
+    "go.toolsManagement.autoUpdate": true,
+    "liveServer.settings.donotShowInfoMsg": true,
+    "go.formatTool": "goimports",
+    "editor.formatOnSave": true,
+    "git.confirmSync": false,
+    "redhat.telemetry.enabled": false,
+    "workbench.startupEditor": "none",
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "omnisharp.useModernNet": false,
+    "telemetry.telemetryLevel": "off",
+    "debug.javascript.codelens.npmScripts": "never",
+    "editor.wordWrap": "on",
+    "editor.wrappingIndent": "indent",
+    "isort.args": [
+        "--multi-line",
+        "3",
+        "--trailing-comma",
+        "--force-grid-wrap",
+        "--line-length",
+        "100"
+    ],
+    "files.autoSaveDelay": 500,
+    "notebook.lineNumbers": "on",
+    "editor.quickSuggestions": {
+        "other": true,
+        "comments": true,
+        "strings": true
+    },
+    "remote.SSH.configFile": "/Users/carlosegat/.ssh/config",
+    "git.openRepositoryInParentFolders": "never",
+    "diffEditor.ignoreTrimWhitespace": false,
+    "python.testing.pytestArgs": [
+        "-s",
+        "src/**/*.py"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "python.languageServer": "Pylance",
+    "terminal.integrated.inheritEnv": false,
+    "solidity.telemetry": true,
+    "dotnet.formatting.organizeImportsOnFormat": true,
+    "editor.inlineSuggest.enabled": false,
+    "dotnetAcquisitionExtension.existingDotnetPath": [
+        "/usr/local/share/dotnet/dotnet"
+    ],
+    "godotTools.editorPath.godot4": "/Applications/Godot.app/Contents/MacOS/Godot",
+    "workbench.secondarySideBar.defaultVisibility": "hidden",
+    "claudeCode.preferredLocation": "panel",
+    "claudeCode.useTerminal": true,
+    "dart.flutterSdkPath": "/Applications/flutter",
+    "hediet.vscode-drawio.resizeImages": null,
+}

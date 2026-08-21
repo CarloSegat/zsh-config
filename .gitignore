@@ -30,3 +30,11 @@ gtk-2.0/
 zsh/.zsh_history
 zsh/.zcompdump*
 zsh/.zsh_sessions/
+
+# Secrets (sourced by .zshrc, never commit)
+secrets
+
+# Machine-local runtime state
+cagent/
+flutter/
+jgit/

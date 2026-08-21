@@ -6,9 +6,6 @@ GTK (GIMP Toolkit) is a library used by many GUI apps (Wireshark, Chromium, VS C
 
 The `gtk-2.0/gtkfilechooser.ini` file configures the **file picker dialog** — the window that appears when you click "Open File" or "Save As" in any GTK-based app.
 
-## coc
-nvim language extensions
-
 ## iterm2
 Terminal emulator (Catppuccin Mocha, JetBrains Mono + Nerd Font)
 

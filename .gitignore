@@ -16,9 +16,6 @@ nvim/bundle/
 # Neovim binary spellfile
 nvim/*.spl
 
-# CoC runtime state
-coc/memos.json
-
 # Wireshark (auto-regenerated on quit)
 wireshark/recent
 wireshark/recent_common

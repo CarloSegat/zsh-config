@@ -35,3 +35,6 @@ secrets
 cagent/
 flutter/
 jgit/
+
+# tmux-resurrect session snapshots (regenerated on every save)
+tmux/resurrect/

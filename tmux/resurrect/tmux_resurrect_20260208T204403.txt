@@ -1,4 +1,0 @@
-pane	dotconfs	1	1	:*	0	carlosegat@Carlos-MacBook-Air-928:~/.config	:/Users/carlosegat/.config	1	zsh	:
-pane	dotconfs	1	1	:*	1	carlosegat@Carlos-MacBook-Air-928:~	:/Users/carlosegat	0	zsh	:
-window	dotconfs	1	:zsh	1	:*	b19b,170x43,0,0{86x43,0,0,0,83x43,87,0,1}	off
-state	dotconfs	

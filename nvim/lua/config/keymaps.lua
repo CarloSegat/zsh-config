@@ -24,9 +24,41 @@ map({ "n", "v", "o" }, "K", "5k", { desc = "Move 5 lines up" })
 -- Esc clears search highlights
 map("n", "<Esc>", ":noh<CR>", { desc = "Clear search highlights" })
 
+-- ── LSP ───────────────────────────────────────────────────────────
+-- gd → LSP definition (overrides Vim's builtin local-file search)
+map("n", "gd", vim.lsp.buf.definition, { desc = "LSP go to definition" })
+map("n", "gD", vim.lsp.buf.declaration, { desc = "LSP go to declaration" })
+
 -- ── Completion ────────────────────────────────────────────────────
 -- CR accepts the native popup menu selection; otherwise inserts a normal newline
 -- (This covers the built-in completion menu, not blink.cmp which has its own mappings)
+-- ── Text formatting ───────────────────────────────────────────────
+-- Wrap selected lines at sentence boundaries (avoids splitting e.g., i.e., etc.)
+vim.api.nvim_create_user_command("WrapSentences", function(opts)
+    local start_line = opts.line1
+    local end_line   = opts.line2
+    local lines  = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+    local text   = table.concat(lines, " ")
+    -- Protect abbreviations and ellipsis from splitting
+    text = text:gsub("e%.g%.", "\1EG\1")
+    text = text:gsub("i%.e%.", "\1IE\1")
+    text = text:gsub("%.%.%.", "\1EL\1")
+    -- Split at sentence-ending punctuation followed by space(s) and uppercase/digit
+    local result = vim.fn.substitute(text, [[\([.!?]\)\s\+\([A-Z0-9]\)]], [[\1\n\2]], 'g')
+    -- Restore protected tokens
+    result = result:gsub("\1EG\1", "e.g.")
+    result = result:gsub("\1IE\1", "i.e.")
+    result = result:gsub("\1EL\1", "...")
+    vim.api.nvim_buf_set_lines(0, start_line - 1, end_line, false, vim.split(result, "\n", { plain = true }))
+end, { range = true })
+
+map("x", "<leader>fw", ":WrapSentences<CR>", { desc = "Wrap at sentence boundaries" })
+
+vim.keymap.set('v', '<leader>tb', [["zc\textbf{<C-r>z}<Esc>]], {
+  desc = 'Wrap selection in \\textbf{}',
+  noremap = true
+})
+
 map("i", "<CR>", function()
     if vim.fn.pumvisible() == 1 then
         -- Accept the selected completion item

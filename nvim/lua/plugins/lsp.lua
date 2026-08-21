@@ -25,6 +25,7 @@ return {
                     "texlab",
                     "solidity_ls_nomicfoundation",
                     "ltex",
+                    "gopls",
                 },
             })
 
@@ -67,6 +68,7 @@ return {
                 "solidity_ls_nomicfoundation",
                 "gdscript",
                 "ltex",
+                "gopls",
             })
         end,
     },

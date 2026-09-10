@@ -8,10 +8,14 @@ system = [
 drawio = [
     { run = 'open -a "draw.io" "$@"', orphan = true, desc = "Open in draw.io" }
 ]
+word = [
+    { run = 'open -a "Microsoft Word" "$@"', orphan = true, desc = "Open in Microsoft Word" }
+]
 
 [open]
 prepend_rules = [
     { url = "*.drawio", use = "drawio" },
+    { url = "*.{docx,doc,docm,rtf}", use = "word" },
     { mime = "{image,audio,video}/*", use = "system" },
     { mime = "application/pdf", use = "system" },
     { url = "*", use = "edit" },

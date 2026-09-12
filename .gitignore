@@ -38,3 +38,7 @@ jgit/
 
 # tmux-resurrect session snapshots (regenerated on every save)
 tmux/resurrect/
+
+# Claude Code gateway: token and request log
+claude-gateway/env
+claude-gateway/gateway.log

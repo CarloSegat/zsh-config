@@ -202,3 +202,6 @@ eval "$(zoxide init zsh)"
 [[ ! -f ~/.config/p10k/p10k.zsh ]] || source ~/.config/p10k/p10k.zsh
 
 source ~/.config/secrets
+
+# Claude Code model-routing gateway (claude-gw, claude-gw-stop, claude-gw-log)
+source ~/.config/claude-gateway/claude-gw.sh

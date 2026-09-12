@@ -1,0 +1,11 @@
+{
+  "modelPicker": {
+    "options": [
+      {
+        "model": "qwen3-coder-next:q8_0",
+        "label": "Qwen3 Coder Next q8 (TU Berlin)",
+        "description": "Ollama via local gateway, no subscription usage"
+      }
+    ]
+  }
+}

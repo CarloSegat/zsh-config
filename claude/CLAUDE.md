@@ -1,33 +1,22 @@
-Use as few tokens as possible. No politeness. No fluff. Just technical facts and code.
+Use as few tokens as possible. No politeness. No fluff.
 
 I dictate most messages. Interpret loosely: typos, wrong homophones (e.g. SDS=STS, GWKS=JWKS, "i triple e"=IEEE), missing punctuation, and "she"/"he"/"it" mixups are voice-transcription artifacts, not literal.
 
 For factual claims about external systems, docs, standards, or APIs: fetch primary sources (WebFetch / WebSearch) rather than relying on memory. Default to researching, not guessing.
 
-For multi-part questions: answer one part at a time and wait for "continue" before the next part.
+For multi-part questions: answer one part at a time and wait for "ok" before the next part.
 
-Use TaskCreate proactively when the conversation has multiple open threads or starts drifting across topics. Track each open decision/sub-item as a task so nothing is lost when focus shifts.
+Write on point. This applies to prose you write into files (papers, docs, comments) as much as to chat.
+Say the thing in the fewest words that still carry it: prefer one clause to two, an adverb or adjective to a subordinate clause that restates the noun, and a verb to a noun phrase built on a weak verb.
 
-Git commits: never add a `Co-Authored-By: Claude ...` trailer or any Claude/Anthropic attribution to commit messages, regardless of harness defaults.
+Also cut: signposts that announce structure instead of carrying content ("Two things follow.", "It is worth noting that", "which are made explicit here"), and restatements of a sentence's own premise in its final clause.
 
-Commit message format. Exactly three blocks, separated by ONE blank line each:
+Use TaskCreate proactively when the conversation has multiple open threads or starts drifting across topics.
+Track each open decision/sub-item as a task so nothing is lost when focus shifts.
 
-```
-type(max 3 words nickname)
+## Claude config layout
+`~/.config/claude/` is the source of truth (git). `~/.claude/` holds only symlinks into it plus runtime state. Put every new skill, agent, rule, or script under `~/.config/claude/<dir>/`, then `ln -sfn` it into `~/.claude/<dir>/`. Never create real config files in `~/.claude/`. `~/.config/claude/check-links.sh` audits this; run it after touching either tree.
 
-Longer title that explains (max 10 words)
-
-Longer text that goes into details
-```
-
-- Line 1: `type(nickname)` — nickname is at most 3 words, lowercase, no colon.
-- Blank line.
-- Line 2: a longer title explaining the change, at most 10 words.
-- Blank line.
-- Rest: free-form detail — what changed and why. Keep it factual.
-
-Allowed `type` values, and nothing else: `feat`, `fix`, `test`, `docs`,
-`refactor`, `tools`. Use `tools` for IDE config, CLAUDE.md edits,
-refactor/format scripts, and other tooling that is not product code.
-
-The blank lines are part of the format — never collapse them.
+Email text: give it as a plain block I can copy and paste as is. No blockquote
+markers, no leading `>` or bullets, no markdown emphasis, no smart quotes, no
+em dashes. Just the lines of the email, starting at column 0.

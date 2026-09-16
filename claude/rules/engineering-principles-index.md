@@ -1,6 +1,6 @@
 # Principles
 
-Read the leaf skill in full for any principle you apply: `~/.claude/skills/<name>/SKILL.md`. Each entry names when it applies.
+Read the leaf skill in full for any principle you apply: `~/.config/claude/principles/<name>.md`. Each entry names when it applies.
 
 ## Core
 

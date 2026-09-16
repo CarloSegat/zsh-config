@@ -1,4 +1,5 @@
 {
+  "syncClaudeAiSkills": false,
   "permissions": {
     "allow": [
       "Bash(find *)",
@@ -34,23 +35,22 @@
     ]
   },
   "model": "opus[1m]",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.config/claude/statusline-command.sh"
+  },
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5": {
       "effortLevel": "xhigh"
     },
     "claude-fable-5-1": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     }
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.config/claude/statusline-command.sh"
   },
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true,
-  "syncClaudeAiSkills": false
+  "voiceEnabled": true
 }

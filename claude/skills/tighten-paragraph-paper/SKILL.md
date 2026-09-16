@@ -1,6 +1,7 @@
 ---
 name: tighten-paragraph-paper
 description: Tighten one paragraph of a paper, globally aware of the rest
+disable-model-invocation: true
 argument-hint: <paper file> <which paragraph — quote it, or give section + first words>
 ---
 

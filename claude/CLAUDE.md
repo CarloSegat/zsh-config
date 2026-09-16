@@ -19,6 +19,7 @@ Track each open decision/sub-item as a task so nothing is lost when focus shifts
 
 Scripts in `~/.config/claude/`, run them instead of reimplementing:
 - `check-links.sh`: audits the layout above. Run after touching either tree.
+- `mcp-sync.sh`: copies `mcp.json` (source of truth for user-scope MCP servers) into `~/.claude.json`, the only place Claude Code reads them from. Run after editing `mcp.json`; never `claude mcp add --scope user` directly.
 - `list-sessions.sh`: lists Claude Code sessions (size, date, project, title). Run when asked about past sessions, session names, or disk use.
 - `rm-session.sh <id> [--yes]`: deletes one session everywhere (transcript, tasks, file-history, session-env, temp, history.jsonl, `.claude.json`), refuses live sessions. Dry run without `--yes`. Run when asked to delete or clean up a session.
 

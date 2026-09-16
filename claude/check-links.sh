@@ -21,4 +21,5 @@ for d in skills agents; do
   done
 done
 for p in "$DST"/skills/.trash "$DST"/skills/synced; do [ -e "$p" ] && { echo "leftover: $p"; bad=1; }; done
+python3 -c 'import json,os;a=json.load(open(os.path.expanduser("~/.config/claude/mcp.json")))["mcpServers"];b=json.load(open(os.path.expanduser("~/.claude.json"))).get("mcpServers");raise SystemExit(a!=b)' || { echo "mcp drift: run ~/.config/claude/mcp-sync.sh"; bad=1; }
 exit $bad

@@ -9,7 +9,7 @@ The strong model plans and reviews; `qwen-worker` (free) writes the code. Every 
 
 **Hard limits.**
 - No argument → print `usage: /dumb-loop <backlog task name>` and stop.
-- `ANTHROPIC_BASE_URL` unset → stop: `qwen-worker` is only reachable from a `claude-gw` session.
+- `ANTHROPIC_BASE_URL` unset → run Phase 0 and 1 only (planning needs no qwen), then stop after the plan is written: `qwen-worker` is only reachable from a `claude-gw` session, which picks the plan up.
 - Strong-model contexts: this session plus the one `/code-review` fork. Never call `Agent` with a type other than `qwen-worker`. Never invoke `architect`, `playbook-*`, `Plan`, `Explore`, `Workflow`.
 - At most 5 `qwen-worker` agents alive at once. At most 2 rounds.
 - qwen runs `git` only where a step gives the exact command (the thread's final commit). The orchestrator merges and pushes.
@@ -57,6 +57,8 @@ Planning rules (grows from run findings):
 - Waves: wave k holds the threads whose `depends_on` are all merged. Wave 2+ branches from the merged task branch.
 
 #### Phase 2 — dispatch, per wave
+
+`ANTHROPIC_BASE_URL` unset → stop here and print the plan path and `claude-gw` + `/dumb-loop <task>` as the next step.
 
 Round start: `git branch dumb/<task-slug> main` (delete it first if left over).
 

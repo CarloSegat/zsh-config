@@ -15,7 +15,12 @@ Use TaskCreate proactively when the conversation has multiple open threads or st
 Track each open decision/sub-item as a task so nothing is lost when focus shifts.
 
 ## Claude config layout
-`~/.config/claude/` is the source of truth (git). `~/.claude/` holds only symlinks into it plus runtime state. Put every new skill, agent, rule, or script under `~/.config/claude/<dir>/`, then `ln -sfn` it into `~/.claude/<dir>/`. Never create real config files in `~/.claude/`. `~/.config/claude/check-links.sh` audits this; run it after touching either tree.
+`~/.config/claude/` is the source of truth (git). `~/.claude/` holds only symlinks into it plus runtime state. Put every new skill, agent, rule, or script under `~/.config/claude/<dir>/`, then `ln -sfn` it into `~/.claude/<dir>/`. Never create real config files in `~/.claude/`.
+
+Scripts in `~/.config/claude/`, run them instead of reimplementing:
+- `check-links.sh`: audits the layout above. Run after touching either tree.
+- `list-sessions.sh`: lists Claude Code sessions (size, date, project, title). Run when asked about past sessions, session names, or disk use.
+- `rm-session.sh <id> [--yes]`: deletes one session everywhere (transcript, tasks, file-history, session-env, temp, history.jsonl, `.claude.json`), refuses live sessions. Dry run without `--yes`. Run when asked to delete or clean up a session.
 
 Email text: give it as a plain block I can copy and paste as is. No blockquote
 markers, no leading `>` or bullets, no markdown emphasis, no smart quotes, no

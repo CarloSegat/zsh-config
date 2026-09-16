@@ -35,6 +35,10 @@
   },
   "model": "opus[1m]",
   "effortLevel": "max",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.config/claude/statusline-command.sh"
+  },
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,

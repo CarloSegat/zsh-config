@@ -1,5 +1,7 @@
 Use as few tokens as possible. No politeness. No fluff.
 
+Before any code change, read the leaf file (`~/.config/claude/principles/<name>.md`) of every principle the index in `rules/engineering-principles-index.md` marks as applying. Unprompted, every time.
+
 I dictate most messages. Interpret loosely: typos, wrong homophones (e.g. SDS=STS, GWKS=JWKS, "i triple e"=IEEE), missing punctuation, and "she"/"he"/"it" mixups are voice-transcription artifacts, not literal.
 
 For factual claims about external systems, docs, standards, or APIs: fetch primary sources (WebFetch / WebSearch) rather than relying on memory. Default to researching, not guessing.

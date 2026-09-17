@@ -34,7 +34,7 @@
       "Bash(file /Users/carlosegat/claude-image-cache/**)"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5-1[1m]",
   "statusLine": {
     "type": "command",
     "command": "bash ~/.config/claude/statusline-command.sh"
@@ -45,12 +45,15 @@
       "effortLevel": "xhigh"
     },
     "claude-fable-5-1": {
-      "effortLevel": "high"
+      "effortLevel": "xhigh"
     }
   },
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "enabledPlugins": {
+    "skill-creator@claude-plugins-official": true
+  }
 }

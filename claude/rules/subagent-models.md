@@ -11,4 +11,8 @@ Skills say "your configured <role> model (default `sonnet` / `opus`)". Resolve t
 - why-investigators: `general-purpose`, `model: sonnet` (need MCP tools, so not qwen)
 - why-synthesizer: `general-purpose`, `model: opus`
 - architect runners: `general-purpose`, one each on `opus`, `fable`, `sonnet`
+- arena runners: same as architect runners
+- arena runners (local, claude-gw session only): `local-qwen-coder`, `local-gpt-oss`, `local-deepseek`
+- arena cross-judge (local): `local-mistral`
+- plan critics: the three local arena runners
 - prose and judgment: `model: opus`

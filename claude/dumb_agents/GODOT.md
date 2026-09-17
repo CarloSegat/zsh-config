@@ -182,3 +182,50 @@ proves the file parses, nothing more.
 Rule: to prove behaviour, instantiate the scene headless and step frames:
 `godot --headless --path . --script <probe>.gd` with `extends SceneTree`,
 `await process_frame`, print what you measured, delete the probe.
+
+## 16. `PathFollow2D.rotates` turns local +X, not a Label's glyph axis
+
+`PathFollow2D.rotates = true` (the default) sets the follow's local +X axis
+along the path tangent. A `Label` draws its glyph upright, "down" along local
++Y. Left uncompensated, a text/icon child ends up rotated 90° off the
+direction of travel, consistently, at every point on the path.
+
+Rule: a `Control` child of a rotating `PathFollow2D` needs its own
+compensating `rotation` so its forward axis lines up with local +X. Don't
+trust a memorized sign; verify empirically: read `rotation` on a straight
+test segment of known direction, work out which offset makes the child's
+forward axis match it.
+
+## 17. `Curve2D.add_point()` with no handles + `PathFollow2D.v_offset` swings at corners
+
+`curve.add_point(p)` with default (zero) in/out handles makes a straight
+segment; the tangent jumps instantly at each interior point. `v_offset` is
+applied in the follow's local (rotated) frame, so at a sharp corner an
+offset child doesn't just re-orient, it swings sideways by up to `2 *
+v_offset` in a single frame — far more than a `v_offset = 0` child hitting
+the same corner. Reads as "jerky" motion, worse the further a lane sits from
+center.
+
+Rule: give interior points real Bezier handles (e.g. Catmull-Rom-style:
+average the incoming/outgoing segment directions, scale to a fraction of the
+shorter segment) so the tangent turns gradually. Confirm headless: step
+frames, diff position between consecutive frames, corner crossings must not
+spike above neighboring frames.
+
+## 18. Sibling paths sharing leading points drift back into full overlap
+
+Two `PackedVector2Array` courses that start with the same points, then
+diverge, each get their own looping population of nodes on the shared
+segment. Their loop periods differ (different total course length), so the
+two populations drift in and out of phase forever, periodically landing back
+on the exact same pixels.
+
+Symptom looks like a rendering "flicker" or pop-in but is real duplicate
+icons repeatedly coinciding and separating; only on the shared segment, and
+never settles since the two course lengths set an unrelated drift period.
+
+Rule: a fork/confluence point is one shared point, not a shared prefix.
+Exactly one course owns a given segment; a course starting after a merge
+begins at the fork coordinate, not a copy of the segment before it. Grep
+sibling point-array constants for identical leading elements before
+shipping.

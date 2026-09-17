@@ -12,19 +12,6 @@ only when something instantiates it. The plan's check command loads every
 it after every edit and before every commit. Nothing below would have
 survived it.
 
-## 1. Unbalanced parentheses
-
-Wrapping a lambda body in an `if` dropped the `)` that closed the call:
-
-    timer.timeout.connect(func() -> void:
-        if _alive:
-            _tick()
-
-Error: `Could not parse global class "X"`.
-
-Rule: after editing a multi-line call that holds a lambda, count the closing
-parens. Then run the check.
-
 ## 2. Calling instance methods on a class
 
 `EntityArea.overlaps(pos)`, where `EntityArea` is a `class_name`. Error:
@@ -79,39 +66,6 @@ Declare the member and build it in `_init`:
 
 When a sibling class already does the thing, copy its pattern.
 
-## 7. Comment stripping that deletes code
-
-A "remove comments" pass deleted this whole block:
-
-    # seconds between polls
-    const FETCH_TIME_INTERVAL := 2.0
-
-The constant went with its comment. Its reader, `FETCH_TIME_INTERVAL * 2` in
-another file, stopped compiling.
-
-Rule: a comment pass removes only `#` lines and trailing `# ...`. Prove it per
-touched file; the command prints nothing when only comments changed:
-
-    strip() { sed 's/#.*$//' "$@" | grep -v '^[[:space:]]*$' | sed 's/[[:space:]]*$//'; }
-    diff <(git show HEAD:<path> | strip) <(strip <path>)
-
-## 8. Re-implementing the base class
-
-A subclass overrode `_is_dead(collider)` with an untyped paste of the base
-body, plus a second copy of a check the base already made.
-
-Rule: read the base class before overriding. Override only what changes.
-
-## 9. Plan checkpoints are not optional
-
-A plan gated three steps on the check command and one on opening the editor.
-None ran. One step asked "with the feature off, is the behaviour what it
-was?"; the answer was no (a `-1` sentinel made the first assert skip for every
-entity) and nobody checked.
-
-Rule: at a checkpoint, run the command and answer the question against the
-code, initial state included. Report the output, not the intention.
-
 ## 10. Reading errors
 
 `SCRIPT ERROR: Parse Error: ...` is runtime output. `Parser Error: ...` is the
@@ -141,16 +95,6 @@ Rule: a node that lives in the tree from startup and is toggled with
         if shown:
             _tween = _build_tween()
 
-## 12. Constants measured off a glyph
-
-An amplitude constant of `30.0` px was chosen against `30.6` px of measured
-slack between an emoji glyph and its parent. Emoji come from the platform
-fallback font and its metrics differ per OS, so where the glyph renders
-taller the animated node leaves its parent, which does not clip.
-
-Rule: never size a layout against a glyph box measured on one machine. Keep the
-clearance a fraction of the box, or clip the parent.
-
 ## 13. `custom_minimum_size` inside a container
 
 A `Control` inside a `VBoxContainer` was given `custom_minimum_size =
@@ -161,16 +105,6 @@ nothing.
 Rule: in a container `custom_minimum_size` is a floor, not the size. To hold a
 width, set `size_flags_horizontal = Control.SIZE_SHRINK_CENTER` (`4` in a
 `.tscn`).
-
-## 14. Text that grows under a centre alignment
-
-`horizontal_alignment = 1` with `text = base + frames[i]`: the box stays the
-same width, so every added dot re-centres the line and the word before it
-slides left.
-
-Rule: text that changes length under a centre alignment moves everything around
-it. Pad every frame to the width of the widest, or give the growing part its own
-left-aligned node.
 
 ## 15. The unit check does not run your code
 

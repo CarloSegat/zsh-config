@@ -61,3 +61,7 @@ A problem verification surfaces that the arena did not catch means either Phase 
 ## Outputs
 
 One synthesized artifact. One synthesis note beside it: base, grafts with source candidate, rejections, dropouts, verification result.
+
+## Local synthesis
+
+A caller may opt in by saying so: Phase C's judge additionally picks the base, lists grafts (candidate, what, where) and counts candidates that differ in design; the `arena graft applier` from `subagent-models.md` performs Phases D and E and writes `merged.md` plus the synthesis note beside the candidates; the caller reads the merged artifact and note only. Phase F stays with the caller.

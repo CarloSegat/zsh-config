@@ -31,3 +31,12 @@ Server checks (`O=https://gateway.snet.tu-berlin.de/echelon/ollama`, `A="Authori
 | `curl -s $O/api/tags -H "$A" \| jq '.models[].name'` | List routable models |
 | `curl -s $O/api/version -H "$A"` | Ollama version (needs ≥ 0.14) |
 | `curl -s $O/api/ps -H "$A" \| jq '.models[].context_length'` | Effective context of loaded models (needs ≥ 32k) |
+
+## Do not re-add `tool_choice`
+
+`OLLAMA_DROP_TOP` strips `tool_choice` because Ollama's `/v1/messages` does not
+support it (Ollama's Anthropic-compatibility doc lists it under "Not supported":
+"Forcing specific tool use or disabling tools"). Forwarding it does not make a
+weak model call tools; it only risks a 400. A local model that will not call
+tools is a model problem — see "Local models that do not use tools" in
+`~/.config/claude/rules/subagent-models.md`.

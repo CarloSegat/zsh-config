@@ -2,7 +2,7 @@
 
 Mistakes made by coding agents that do not know Godot 4, collected from real
 diffs. Each entry: what was done, what it broke, the rule. Entries name no
-repo, file or commit; that provenance is in `RUNS.md`.
+repo, file or commit.
 
 ## 0. Compile before you claim anything
 
@@ -163,3 +163,88 @@ Exactly one course owns a given segment; a course starting after a merge
 begins at the fork coordinate, not a copy of the segment before it. Grep
 sibling point-array constants for identical leading elements before
 shipping.
+
+## Planning a change
+
+The entries above come from diffs. These come from plans: four agents planning
+the same feature blind, three rounds. Same form — what was done, what it broke,
+the rule.
+
+## 19. Reaching two fields through the full parser
+
+A screen needed three fields out of a server payload and called the parser the
+game already had. That parser checks things the screen does not care about: it
+rejects a row whose type it does not recognise, and builds the whole object
+graph to reach two integers. Add a type on the server and the new screen
+crashes, not just the feature the parser was written for. In an exported build
+`assert` is stripped, so it does not even fail there — it returns a half-built
+object and the crash moves to the first field you read.
+
+Rule: parse what you need, into your own small type, where the payload arrives.
+Drop rows that do not carry it, so nothing downstream — a divide by a max, a
+lookup by name — is handed a zero or a null. Use the big parser only when you
+want what it validates.
+
+## 20. The signal fires before the listener exists
+
+A view had to redraw when its data changed, so the design was one signal,
+emitted wherever the data is written. That covers every later change. It does
+not cover the one that already happened: a caller refreshes the data and then
+opens the view, so the data is current before the view exists and the signal
+fired with nobody connected. A view that only connects the signal comes up
+empty.
+
+Rule: connecting a signal handles changes after you exist, not the state you
+were born into. In `_ready`, draw from the data as it is, then connect — both
+paths calling the same function. Check what opens your scene: if it refreshes
+first and opens second, no signal is coming.
+
+## 21. No way to see the feature working
+
+The feature was four speed tiers by hp. Real data almost never spans all four
+at once, so launching the game shows one or two tiers and proves nothing. The
+plans that skipped this ended their verification at "look at it and see".
+
+Rule: write an e2e test, built like the fight tests already in the suite. Load
+the real scene, seed the data so every state is present in one run, let it run
+a few frames, then read the state back off the nodes and assert it. The seeding
+belongs inside the test, not in a manual step, so the reviewer runs one command
+and the machine says whether all four tiers are right.
+
+## 22. Parking a node above the scene that owns it
+
+A popup belonged to one screen. It was put on the layer that survives scene
+changes, so it would not vanish mid-fade. Now it outlives the screen: it shows
+up over the next one, and every transition needs a line to hide it. Miss one
+and it hangs over the wrong screen.
+
+Rule: put a node inside the scene it belongs to and let the scene transition
+free it. Moving it higher to dodge one fade costs a hide call in every other
+transition, forever.
+
+## 23. An if-else chain per type, instead of a dictionary
+
+A screen showed different rows for each of five card types, with one `if` per
+type — the same five-way chain a parser elsewhere already had. A sixth type
+means editing both.
+
+Rule: if every arm of the chain does the same thing with different values, the
+values belong in a `Dictionary` keyed by the type and the code that walks it is
+written once. A chain is only right when the arms do different work.
+
+## 24. Copying the nearest example, bug and all
+
+A new panel had to show current and max hp. The existing card widget prints
+them the wrong way round — max first. Three plans spotted that; one copied it.
+
+Rule: read the pattern you copy and check it against what it should produce.
+"The other file does it this way" is a starting point, not a justification.
+
+## 25. Claims about the code with nothing to check them against
+
+The plans that cited `file:line` per claim were the ones whose claims held up.
+The plan that cited bare filenames, a glob, and a path that did not exist yet
+was wrong most often.
+
+Rule: every statement about existing code carries its path and line. A glob is
+not a citation, and a path you intend to create is marked new, not cited.

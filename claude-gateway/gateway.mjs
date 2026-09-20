@@ -57,8 +57,25 @@ function stripBlocks(node) {
   return node;
 }
 
+// Ollama's Mistral chat template renders the tool list only before a user message in the
+// last two slots and the system prompt only inside a trailing user message. Ollama turns
+// every tool_result block into a `tool` message, so after any tool round the model sees
+// neither, and answers in prose. A trailing text block makes that turn end in a user
+// message again (anthropic/anthropic.go convertMessage emits tool messages first, then
+// the text as a user message). Probed 2026-09-19 on mistral-large:123b-instruct-2411-q6_K.
+const TRAILING_USER_TURN = /mistral/i;
+function reopenUserTurn(body) {
+  if (!TRAILING_USER_TURN.test(body.model) || !Array.isArray(body.messages)) return body;
+  const last = body.messages[body.messages.length - 1];
+  if (!last || last.role !== 'user' || !Array.isArray(last.content)) return body;
+  const tail = last.content[last.content.length - 1];
+  if (tail?.type === 'tool_result') last.content.push({ type: 'text', text: 'Continue.' });
+  return body;
+}
+
 function sanitizeForOllama(body) {
   for (const k of OLLAMA_DROP_TOP) delete body[k];
+  reopenUserTurn(body);
   if (body.system !== undefined) body.system = stripBlocks(body.system);
   if (Array.isArray(body.messages)) body.messages = stripBlocks(body.messages);
   if (Array.isArray(body.tools)) {

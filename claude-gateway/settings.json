@@ -5,6 +5,11 @@
         "model": "qwen3-coder-next:q8_0",
         "label": "Qwen3 Coder Next q8 (TU Berlin)",
         "description": "Ollama via local gateway, no subscription usage"
+      },
+      {
+        "model": "mistral-large:123b-instruct-2411-q6_K",
+        "label": "Mistral Large q6_K (TU Berlin)",
+        "description": "Ollama via local gateway, no subscription usage — UNVERIFIED tool use, prior vintage fabricated instead of calling tools"
       }
     ]
   }

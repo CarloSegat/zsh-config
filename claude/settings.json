@@ -59,5 +59,19 @@
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ~/.config/claude/hooks/guard-gs-launch.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }

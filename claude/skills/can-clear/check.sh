@@ -17,9 +17,6 @@ checks() {
     if git merge-base --is-ancestor "$br" "$main"; then b "merged branch '$br' not deleted: git branch -d $br"
     else b "branch '$br' not merged into $main"; fi
   done
-  if git rev-parse -q --verify "origin/$main" >/dev/null 2>&1; then
-    n=$(git rev-list --count "origin/$main..$main"); [ "$n" = 0 ] || b "$main is $n commit(s) ahead of origin/$main: git push"
-  fi
   [ -z "$(git stash list)" ] || b "$(git stash list | wc -l | tr -d ' ') stash(es): git stash list"
   if command -v gh >/dev/null && git remote get-url origin 2>/dev/null | grep -q github; then
     gh pr list --author @me --state open --json number,title,headRefName \

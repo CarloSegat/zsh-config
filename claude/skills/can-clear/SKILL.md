@@ -32,4 +32,4 @@ Unanswered:
 - <one line per open question, who owes the answer>
 ```
 
-Omit an empty section. If every blocker is mechanical (delete a merged branch, remove a worktree, push), offer to run the fixes in one line after the verdict.
+Omit an empty section. If every blocker is mechanical (delete a merged branch, remove a worktree), offer to run the fixes in one line after the verdict.

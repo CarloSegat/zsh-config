@@ -1,5 +1,4 @@
 {
-  "feedbackDrafts": "off",
   "syncClaudeAiSkills": false,
   "permissions": {
     "allow": [
@@ -35,7 +34,64 @@
       "Bash(file /Users/carlosegat/claude-image-cache/**)"
     ]
   },
-  "model": "opus[1m]",
+  "model": "sonnet[1m]",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ~/.config/claude/hooks/guard-gs-launch.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.skill // empty' | { read -r s; [ -n \"$s\" ] && ~/.config/claude/log-usage.sh skills \"$s\"; } 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; case \"$f\" in */claude/principles/*.md) n=$(basename \"$f\" .md); ~/.config/claude/log-usage.sh principles \"$n\";; esac; } 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | { read -r c; for s in check-links.sh mcp-sync.sh list-sessions.sh rm-session.sh; do case \"$c\" in *\"$s\"*) ~/.config/claude/log-usage.sh scripts \"$s\"; break;; esac; done; } 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.prompt // empty' | { read -r p; case \"$p\" in /*) n=\"${p#/}\"; n=\"${n%% *}\"; [ -d ~/.config/claude/skills/\"$n\" ] && ~/.config/claude/log-usage.sh skills \"$n\";; esac; } 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
   "statusLine": {
     "type": "command",
     "command": "bash ~/.config/claude/statusline-command.sh"
@@ -43,6 +99,7 @@
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true
   },
+  "feedbackDrafts": "off",
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5": {
@@ -59,19 +116,5 @@
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true,
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh ~/.config/claude/hooks/guard-gs-launch.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
+  "voiceEnabled": true
 }

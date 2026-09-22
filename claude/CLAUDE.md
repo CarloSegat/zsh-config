@@ -2,7 +2,7 @@ Use as few tokens as possible. No politeness. No fluff.
 
 Before any code change, read the leaf file (`~/.config/claude/principles/<name>.md`) of every principle the index in `rules/engineering-principles-index.md` marks as applying. Unprompted, every time.
 
-I dictate most messages. Interpret loosely: typos, wrong homophones (e.g. SDS=STS, GWKS=JWKS, "i triple e"=IEEE), missing punctuation, and "she"/"he"/"it" mixups are voice-transcription artifacts, not literal.
+I dictate often. Interpret loosely: typos, wrong homophones (e.g. SDS=STS, GWKS=JWKS, "i triple e"=IEEE), missing punctuation, and "she"/"he"/"it" mixups are voice-transcription artifacts, not literal.
 
 For factual claims about external systems, docs, standards, or APIs: fetch primary sources (WebFetch / WebSearch) rather than relying on memory. Default to researching, not guessing.
 
@@ -24,6 +24,13 @@ Scripts in `~/.config/claude/`, run them instead of reimplementing:
 - `mcp-sync.sh`: copies `mcp.json` (source of truth for user-scope MCP servers) into `~/.claude.json`, the only place Claude Code reads them from. Run after editing `mcp.json`; never `claude mcp add --scope user` directly.
 - `list-sessions.sh`: lists Claude Code sessions (size, date, project, title). Run when asked about past sessions, session names, or disk use.
 - `rm-session.sh <id> [--yes]`: deletes one session everywhere (transcript, tasks, file-history, session-env, temp, history.jsonl, `.claude.json`), refuses live sessions. Dry run without `--yes`. Run when asked to delete or clean up a session.
+
+Auto-invoked scripts (don't run by hand, wired in `settings.json`):
+- `statusline-command.sh`: renders the status line (model, context %, 5h usage, reset).
+- `hooks/guard-gs-launch.sh`: PreToolUse(Bash) hook, blocks ad-hoc emoji-gs game-server launches.
+- `log-usage.sh <principles|skills|scripts> <name>`: PostToolUse hooks (Skill/Read/Bash) plus a UserPromptSubmit hook (for user-typed `/skill-name` commands) increment counters in `logs.md` on every principle read, skill invocation, or tracked-script run.
+
+`logs.md`: usage counts for principles/skills/scripts, kept current by `log-usage.sh`. Don't hand-edit.
 
 Email text: give it as a plain block I can copy and paste as is. No blockquote
 markers, no leading `>` or bullets, no markdown emphasis, no smart quotes, no

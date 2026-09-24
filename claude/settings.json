@@ -32,7 +32,8 @@
       "Bash(git branch)",
       "Bash(cp /Users/carlosegat/claude-image-cache/**)",
       "Bash(file /Users/carlosegat/claude-image-cache/**)"
-    ]
+    ],
+    "defaultMode": "auto"
   },
   "model": "sonnet[1m]",
   "hooks": {
@@ -116,5 +117,6 @@
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "disableClaudeAiConnectors": true
 }

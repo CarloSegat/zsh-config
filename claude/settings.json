@@ -45,6 +45,11 @@
             "type": "command",
             "command": "sh ~/.config/claude/hooks/guard-gs-launch.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh ~/.config/claude/hooks/guard-kill.sh",
+            "timeout": 5
           }
         ]
       }

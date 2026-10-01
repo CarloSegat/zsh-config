@@ -32,6 +32,8 @@ Auto-invoked scripts (don't run by hand, wired in `settings.json`):
 
 `logs.md`: usage counts for principles/skills/scripts, kept current by `log-usage.sh`. Don't hand-edit.
 
+Uncommitted files: mention a dirty or uncommitted file only if you wrote it this session. Others' work in progress is not yours to report.
+
 Email text: give it as a plain block I can copy and paste as is. No blockquote
 markers, no leading `>` or bullets, no markdown emphasis, no smart quotes, no
 em dashes. Just the lines of the email, starting at column 0.

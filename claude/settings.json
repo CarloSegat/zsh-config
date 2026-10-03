@@ -35,7 +35,7 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "sonnet[1m]",
+  "disableClaudeAiConnectors": true,
   "hooks": {
     "PreToolUse": [
       {
@@ -116,12 +116,17 @@
     },
     "claude-sonnet-5": {
       "effortLevel": "xhigh"
+    },
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
     }
   },
+  "autoCompactWindow": 400000,
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
+  "switchModelsOnFlag": true,
   "agentPushNotifEnabled": true,
   "voiceEnabled": true,
-  "disableClaudeAiConnectors": true
+  "model": "opus"
 }

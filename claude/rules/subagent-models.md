@@ -20,6 +20,15 @@ Skills say "your configured <role> model (default `sonnet` / `opus`)". Resolve t
 only local models still worth an agent are `qwen3.8-flash-next` and
 `qwen3.8:27b`.
 
+## Working with qwen-worker
+
+- It sees no CLAUDE.md and none of the conversation: each prompt carries absolute paths, the rules that bind the step, the exact commands and the output path.
+- One scoped job per agent: one question, one commit, one check, or one command run. The prompt names the files or directories it may read, the exact reply, and when it is done. Split anything open-ended ("explore X", "review the plan", "draft the file") into such jobs and run them in parallel, at most 5 in flight (gateway limit). Short jobs are also fast: a prompt-cache miss re-reads the whole conversation at ~200 s a request.
+- Facts come as `path:line` followed by the line's text. A reply with zero tool uses is fabricated: discard it and rerun. Open a line yourself before a decision rests on it.
+- Verify the artifact, not the report: `git log`, `git show`, the check rerun by you. A pasted green tail is a claim.
+- Revisions go to the same agent via `SendMessage` (its context survives). A reviewer is a fresh agent that never saw the draft.
+- `ANTHROPIC_BASE_URL` unset (no gateway): it cannot run; use `sonnet`.
+
 ## Local models that do not use tools
 
 Measured 2026-09-17: given a `read_file` tool and a question about a file they

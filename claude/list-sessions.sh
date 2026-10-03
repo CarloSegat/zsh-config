@@ -5,7 +5,7 @@ for f in ~/.claude/projects/*/*.jsonl; do
   [ -e "$f" ] || continue
   proj=$(basename "$(dirname "$f")")
   sz=$(wc -c < "$f" | tr -d ' ')
-  mt=$(stat -f%Sm -t '%Y-%m-%d' "$f")
+  mt=$(date -r "$f" +%Y-%m-%d)
   id=$(basename "$f" .jsonl)
   ct="$(dirname "$f")/$id/custom-title.json"
   title=$(grep -a -m1 -o '"customTitle":"[^"]*"' "$f" | sed 's/.*:"//;s/"$//')

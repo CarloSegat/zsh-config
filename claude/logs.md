@@ -45,5 +45,5 @@ Auto-updated by hooks (settings.json) on every skill/principle/script use. Do no
 - why: 1 (last: 2026-09-29)
 
 ## Scripts
-- check-links.sh: 12 (last: 2026-10-02)
-- list-sessions.sh: 5 (last: 2026-09-30)
+- check-links.sh: 15 (last: 2026-10-03)
+- list-sessions.sh: 7 (last: 2026-10-03)

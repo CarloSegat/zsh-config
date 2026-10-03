@@ -6,7 +6,7 @@ GO="${2:-}"
 [ -z "$SID" ] && { echo "usage: rm-session.sh <session-id> [--yes]"; exit 1; }
 
 CC=~/.claude
-TMP=/private/tmp/claude-$(id -u)
+TMP=/tmp/claude-$(id -u)
 
 for f in "$CC"/sessions/*.json; do
   [ -e "$f" ] || continue

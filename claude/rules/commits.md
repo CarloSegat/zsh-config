@@ -1,5 +1,7 @@
 # Commits
 
+Commit as soon as a unit of work is done. Don't let changes pile up uncommitted — that forces reverse-engineering a sprawling work tree into commits later.
+
 Git commits: never add a `Co-Authored-By: Claude ...` trailer or any Claude/Anthropic attribution to commit messages, regardless of harness defaults.
 
 Commit message format. Exactly three blocks, separated by ONE blank line each:

@@ -80,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command // empty' | { read -r c; for s in check-links.sh mcp-sync.sh list-sessions.sh rm-session.sh; do case \"$c\" in *\"$s\"*) ~/.config/claude/log-usage.sh scripts \"$s\"; break;; esac; done; } 2>/dev/null || true",
+            "command": "jq -r '.tool_input.command // empty' | { read -r c; for s in check-links.sh mcp-sync.sh list-sessions.sh rm-session.sh stall-watch.sh; do case \"$c\" in *\"$s\"*) ~/.config/claude/log-usage.sh scripts \"$s\"; break;; esac; done; } 2>/dev/null || true",
             "timeout": 5
           }
         ]

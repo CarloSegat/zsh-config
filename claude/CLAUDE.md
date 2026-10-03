@@ -24,6 +24,7 @@ Scripts in `~/.config/claude/`, run them instead of reimplementing:
 - `mcp-sync.sh`: copies `mcp.json` (source of truth for user-scope MCP servers) into `~/.claude.json`, the only place Claude Code reads them from. Run after editing `mcp.json`; never `claude mcp add --scope user` directly.
 - `list-sessions.sh`: lists Claude Code sessions (size, date, project, title). Run when asked about past sessions, session names, or disk use.
 - `rm-session.sh <id> [--yes]`: deletes one session everywhere (transcript, tasks, file-history, session-env, temp, history.jsonl, `.claude.json`), refuses live sessions. Dry run without `--yes`. Run when asked to delete or clean up a session.
+- `stall-watch.sh <minutes> <path>... [-- <process-name regex>]`: exits when delegated work stalls (no file change under the paths, no matching process). Start it in the background whenever an agent reports it is waiting.
 
 Auto-invoked scripts (don't run by hand, wired in `settings.json`):
 - `statusline-command.sh`: renders the status line (model, context %, 5h usage, reset).

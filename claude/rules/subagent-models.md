@@ -20,6 +20,11 @@ Skills say "your configured <role> model (default `sonnet` / `opus`)". Resolve t
 only local models still worth an agent are `qwen3.8-flash-next` and
 `qwen3.8:27b`.
 
+## Long checks, any worker
+
+- A worker runs long checks in the foreground (Bash timeout up to 600000 ms per batch) and reports when they end. It never ends its turn waiting on its own background job: a watcher that dies at its limit wakes nobody. Every delegation prompt says so.
+- An interim reply that says the agent is waiting: start `~/.config/claude/stall-watch.sh <minutes> <paths the work writes>` with `run_in_background`. It exits, waking you, once nothing changed there for that long and no `godot`, `make` or `kubectl` runs; then look at the artifacts and wake the agent.
+
 ## Working with qwen-worker
 
 - It sees no CLAUDE.md and none of the conversation: each prompt carries absolute paths, the rules that bind the step, the exact commands and the output path.

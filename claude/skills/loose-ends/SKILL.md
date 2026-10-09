@@ -33,9 +33,9 @@ Each item, as short as it can be:
 - `#k of n, <unanswered | guessed>: <title>`
 - Two or three lines of context: what it is about, where it lives (`path:line` for a file entry), and what happens if the user never answers.
 - For a guess: what Claude chose and why, in one line.
-- Options, lettered, with the recommendation marked. For a guess, (a) is always "keep it".
+- Options through the `AskUserQuestion` tool (per `rules/questions.md`), never lettered in text: the recommendation first, labelled "(Recommended)". For a guess, the first option is always "Keep it".
 
-Then stop and wait. Never show two items in one message.
+One item per `AskUserQuestion` call; never two items in one message.
 
 ## 4. Record
 

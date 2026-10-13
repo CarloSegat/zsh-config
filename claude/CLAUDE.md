@@ -31,7 +31,7 @@ Auto-invoked scripts (don't run by hand, wired in `settings.json`):
 - `hooks/guard-gs-launch.sh`: PreToolUse(Bash) hook, blocks ad-hoc emoji-gs game-server launches.
 - `log-usage.sh <principles|skills|scripts> <name>`: PostToolUse hooks (Skill/Read/Bash) plus a UserPromptSubmit hook (for user-typed `/skill-name` commands) increment counters in `logs.md` on every principle read, skill invocation, or tracked-script run.
 
-`logs.md`: usage counts for principles/skills/scripts, kept current by `log-usage.sh`. Don't hand-edit.
+`logs.md`: usage counts for principles/skills/scripts, kept current by `log-usage.sh`. Untracked, one per machine. Don't hand-edit.
 
 Uncommitted files: mention a dirty or uncommitted file only if you wrote it this session. Others' work in progress is not yours to report.
 

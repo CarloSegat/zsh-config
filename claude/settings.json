@@ -4,7 +4,6 @@
     "allow": [
       "Bash(find *)",
       "Bash(find * | *)",
-      "Bash(find * -exec grep * {} \\;)",
       "Read",
       "Glob",
       "Grep",
@@ -13,7 +12,6 @@
       "WebFetch",
       "Bash(ls *)",
       "Bash(ls)",
-      "Bash(find *)",
       "Bash(grep *)",
       "Bash(cat *)",
       "Bash(head *)",

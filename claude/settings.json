@@ -33,6 +33,7 @@
     ],
     "defaultMode": "auto"
   },
+  "model": "opus",
   "disableClaudeAiConnectors": true,
   "hooks": {
     "PreToolUse": [
@@ -125,6 +126,5 @@
   "skipWorkflowUsageWarning": true,
   "switchModelsOnFlag": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true,
-  "model": "opus"
+  "voiceEnabled": true
 }

@@ -10,8 +10,8 @@ Files (this dir): `gateway.mjs`, `claude-gw.sh` (sourced by `zsh/.zshrc`), `sett
 | Command | What it does |
 | --- | --- |
 | `claude-gw` | Start gateway if needed, launch Claude Code through it (Opus default) |
-| `claude-gw --model qwen3-coder-next:q8_0` | Same, session starts on qwen |
-| `claude-gw -p "…" --model qwen3-coder-next:q8_0` | One-shot prompt on qwen |
+| `claude-gw --model qwen3.8-flash-next:125b-a6b-q8_0` | Same, session starts on qwen |
+| `claude-gw -p "…" --model qwen3.8-flash-next:125b-a6b-q8_0` | One-shot prompt on qwen |
 | `/model` then `s` on the Qwen row | Switch this session to qwen (Enter would save it as global default) |
 | `/model opus` | Back to Opus |
 | `/model default` | Clear a saved qwen default if you pressed Enter |
@@ -21,7 +21,7 @@ Files (this dir): `gateway.mjs`, `claude-gw.sh` (sourced by `zsh/.zshrc`), `sett
 | `set -a; source ~/.config/claude-gateway/env; set +a; node ~/.config/claude-gateway/gateway.mjs` | Gateway in foreground |
 | `claude` | Plain Claude Code, direct to Anthropic, no Qwen row |
 
-Subagent on qwen (works from an Opus session under `claude-gw`): `.claude/agents/qwen-worker.md` with frontmatter `model: qwen3-coder-next:q8_0`.
+Subagent on qwen (works from an Opus session under `claude-gw`): `~/.config/claude/agents/qwen-worker.md` with frontmatter `model: qwen3.8-flash-next:125b-a6b-q8_0`.
 pstack (later): add the slug to `models.json` `available` and a role's `models`; run under `claude-gw`.
 
 Server checks (`O=https://gateway.snet.tu-berlin.de/echelon/ollama`, `A="Authorization: Bearer $SECRET_TOM"`):

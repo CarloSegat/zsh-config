@@ -19,6 +19,8 @@ From files that outlive the conversation, in the cwd repo and any repo the conve
 
 Drop items the user already answered anywhere. Merge duplicates.
 
+Then triage the guesses. Ask only about a guess a reasonable owner might decide differently: a product, UX or wording call, scope the request did not settle, or a change costly to undo (shared or deployed state, data, hardware). Do not ask about a guess that is clearly right: it follows the request literally, the checks prove it, the outcome made it moot, or it is internal code shape with no tradeoff the owner would weigh. Keep those without asking: mark each in its file `A: (kept without asking: <why, a few words>)`, commit, and name them in one line in the first message.
+
 ## 2. Order
 
 1. Unanswered items that block running work (an agent, a build, a merge waiting on them).
@@ -27,7 +29,7 @@ Drop items the user already answered anywhere. Merge duplicates.
 
 ## 3. Present
 
-First message: the counts and nothing else of substance, e.g. `4 open: 2 unanswered, 2 guesses. #1:` followed by item 1.
+First message: the counts and the kept line, nothing else of substance, e.g. `4 open: 2 unanswered, 2 guesses. Kept without asking: 03 label hidden until bars settle, 58 shot helpers. #1:` followed by item 1.
 
 Each item, as short as it can be:
 - `#k of n, <unanswered | guessed>: <title>`

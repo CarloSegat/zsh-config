@@ -126,5 +126,10 @@
   "skipWorkflowUsageWarning": true,
   "switchModelsOnFlag": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  }
 }

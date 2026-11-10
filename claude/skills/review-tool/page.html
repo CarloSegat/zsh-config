@@ -186,7 +186,10 @@ function home(e) {
   return (hit || ps.reduce((a, b) => Math.abs(b.start - e.line) < Math.abs(a.start - e.line) ? b : a)).id;
 }
 
-const where = p => `${p.file.split("/").pop()}:${p.start === p.end ? p.start : p.start + "–" + p.end}`;
+// A passage that adds or removes a paragraph opens with the blank lines before it: label it from its text.
+const first = p => Math.min(p.end, p.start + newText(p).match(/^\n*/)[0].length);
+const lineSpan = p => first(p) === p.end ? `${p.end}` : `${first(p)}–${p.end}`;
+const where = p => `${p.file.split("/").pop()}:${lineSpan(p)}`;
 const newText = p => p.segs.filter(s => s[0] !== "-").map(s => s[1]).join("");
 const gist = p => p.segs.filter(s => s[0] !== "-").map(s => s[1]).join("").replace(/\s+/g, " ").trim().slice(0, 80);
 
@@ -212,7 +215,7 @@ function renderDoc() {
       }
       const card = el("article", { class: "card", id: "p-" + p.id },
         el("div", { class: "head" },
-          el("span", { class: "where" }, `${p.file}:${p.start === p.end ? p.start : p.start + "–" + p.end}`),
+          el("span", { class: "where" }, `${p.file}:${lineSpan(p)}`),
           el("span", { class: "gist" }, p.segs.filter(([o]) => o !== "-").map(([, t]) => t).join("").replace(/\s+/g, " ").slice(0, 160)),
           el("button", { "data-act": "note" }, "Comment"),
           newText(p).trim().includes("\n") ? el("button", { "data-act": "split", title: "Cut this passage in 2 at the line nearest its middle" }, "Split in half") : null,
@@ -565,7 +568,7 @@ $("#doc").addEventListener("click", ev => {
   const card = ev.target.closest(".card");
   if (!act || !card) return;
   const p = card.passage;
-  if (act === "note") openComposer(card, "", p.start);
+  if (act === "note") openComposer(card, "", first(p));
   if (act === "dismiss") run(card, () => post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }));
   if (act === "approve") run(card, async () => {
     if (pOk(p) && p.dirty && S.queued.has(p.id)) return;   // committing already
@@ -600,7 +603,7 @@ document.addEventListener("keydown", ev => {
   const card = cur >= 0 && document.getElementById("p-" + changed[cur]?.id);
   // a approves or commits; withdrawing is the button's alone.
   if (ev.key === "a" && card && !committed(changed[cur])) $('[data-act="approve"]', card).click();
-  if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", changed[cur].start); }
+  if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", first(changed[cur])); }
 });
 
 try { texOn = localStorage.getItem("review-tex") !== "0"; } catch (_) {}

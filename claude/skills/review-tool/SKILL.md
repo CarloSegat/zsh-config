@@ -24,9 +24,9 @@ A comment is a prompt from the user, anchored to `file`, `line` and the selected
 
 `python3 ~/.claude/skills/review-tool/review.py reply <id> "<text>"`
 
-The page shows the reply under the comment, with buttons to approve the passage or comment again, and re-renders by itself when the text changes. Clicking one change (a deletion with its insertion) offers Approve, Revert and Comment.
+The page drops a comment once it has a reply and re-renders by itself when the text changes: the user reads the result in the text, so the reply is a record. Clicking one change (a deletion with its insertion) offers Approve, Revert and Comment.
 
-A `revert` entry means the server already wrote the base text back into the file (`removed` went, `restored` came back). Bring whatever describes that change (a change log, a response letter) in step, then reply to its id the same way. A comment that needs the user's decision gets a reply with the question; the user answers in a new comment. After a restart, `review.py open` lists comments without a reply.
+A `revert` entry means the server already wrote the base text back into the file (`removed` went, `restored` came back). Bring whatever describes that change (a change log, a response letter) in step, then reply to its id the same way (the page does not show reverts). A comment that needs the user's decision: ask in the conversation, and reply once it is settled. After a restart, `review.py open` lists comments without a reply.
 
 ## Contextualize
 

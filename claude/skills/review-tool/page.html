@@ -79,8 +79,6 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .note blockquote { margin: 4px 0; padding: 4px 8px; background: var(--quote); border-radius: 4px;
   font: 13.5px/1.5 var(--read); white-space: pre-wrap; }
 .note .body { white-space: pre-wrap; }
-.note.reply { margin-left: 18px; }
-.note .acts { display: flex; gap: 6px; margin-top: 6px; }
 .composer { border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px; }
 .composer textarea { width: 100%; min-height: 70px; font: 14px/1.45 var(--ui); padding: 6px 8px; border: 1px solid var(--line);
   border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
@@ -141,15 +139,14 @@ let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
 
 function derive() {
-  S = { approved: new Set(), hunks: new Set(), comments: [], notes: [], replies: {}, contexts: [], spent: 0, open: [] };
+  S = { approved: new Set(), hunks: new Set(), comments: [], replies: {}, contexts: [], spent: 0, open: [] };
   for (const e of log) {
     if (e.type === "approve") S.approved.add(e.passage);
     if (e.type === "unapprove") S.approved.delete(e.passage);
     // A hunk's approval is keyed by its text, so it survives edits elsewhere in the passage.
     if (e.type === "approve_hunk") S.hunks.add(hkey(e.file, e.old, e.new));
     if (e.type === "unapprove_hunk") S.hunks.delete(hkey(e.file, e.old, e.new));
-    if (e.type === "comment") { S.comments.push(e); S.notes.push(e); }
-    if (e.type === "revert") S.notes.push(e);
+    if (e.type === "comment") S.comments.push(e);
     if (e.type === "reply") (S.replies[e.to] ||= []).push(e);
     if (e.type === "context") { S.contexts.push(e); S.spent += e.cost || 0; }
   }
@@ -158,12 +155,11 @@ function derive() {
 
 // The passage a note belongs to. Editing a passage changes its id, so a note
 // whose passage is gone follows its file and line to the passage there now.
-function home(e, near = true) {
+function home(e) {
   if (changed.some(p => p.id === e.passage)) return e.passage;
   const ps = changed.filter(p => p.file === e.file);
   if (!ps.length) return null;
   const hit = ps.find(p => e.line >= p.start && e.line <= p.end);
-  if (!near) return hit?.id ?? null;
   return (hit || ps.reduce((a, b) => Math.abs(b.start - e.line) < Math.abs(a.start - e.line) ? b : a)).id;
 }
 
@@ -221,26 +217,8 @@ function renderState() {
   const threads = {};
   for (const p of changed) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
   for (const th of Object.values(threads)) th.replaceChildren();
-  for (const c of S.notes) {
-    const th = threads[home(c, c.type !== "revert")];
-    if (!th) continue;
-    if (c.type === "revert") {
-      th.append(note("Reverted", { ts: c.ts, quote: c.removed.trim() ? c.removed : null,
-        text: c.restored.trim() ? "Restored: " + c.restored : "Removed." }));
-      for (const r of S.replies[c.id] || []) th.append(note("Claude", r, "reply"));
-      continue;
-    }
-    th.append(note("You", c));
-    const rs = S.replies[c.id] || [];
-    for (const r of rs) th.append(note("Claude", r, "reply"));
-    if (rs.length) {
-      // After Claude's answer: accept the passage as it now reads, or ask for more.
-      const ok = pOk(changed.find(p => p.id === home(c)));
-      th.lastChild.append(el("div", { class: "acts" },
-        el("button", { "data-act": "approve", class: ok ? "approved" : "" }, ok ? "Approved" : "Approve"),
-        el("button", { "data-act": "note" }, "Comment again")));
-    }
-  }
+  // Only comments still waiting for Claude show; answered ones are done with.
+  for (const c of S.open) threads[home(c)]?.append(note("You", c));
   for (const c of S.contexts) threads[home(c)]?.append(note("Context", c));
   for (const q of inflight) threads[home(q)]?.append(waiting(q));
   for (const p of changed) {

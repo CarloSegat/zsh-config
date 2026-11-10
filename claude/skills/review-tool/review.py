@@ -847,11 +847,14 @@ def handler(review, port):
 
         def send(self, code, body, ctype="application/json"):
             data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):   # the page left before the reply
+                self.close_connection = True
 
         def guard(self):
             # Refuse other sites' pages (DNS rebinding, cross-site POSTs): the Host

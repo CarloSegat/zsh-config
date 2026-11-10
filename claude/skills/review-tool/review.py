@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PROFILE = "default"  # the Console login `ant auth login` wrote; billed to its organization
+KEYCHAIN_SERVICE = "anthropic-api-credits"
 MODEL = "claude-sonnet-5-5"
 CONTEXT_TOOLS = "Read,Grep,Glob,Bash(grep:*),Bash(sed:*)"
 PAGE_TYPES = {"comment", "approve", "unapprove"}
@@ -185,16 +185,24 @@ class Review:
         return entry
 
     def contextualize(self, body):
-        env = profile_env()
-        if not billed_org(env):
-            raise RuntimeError(f"claude would not bill the Console profile {PROFILE}: run `ant auth login`.")
+        key = api_key()
+        if not key:
+            raise RuntimeError(f"No API key in the Keychain (service {KEYCHAIN_SERVICE}).")
+        # A clean environment: no variable of the session that started the server,
+        # and no credential that outranks the key.
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("CLAUDE") and k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
+        env["ANTHROPIC_API_KEY"] = key
         prompt = f"/contextualize {body['quote']}\n\n(It is in {body['file']}, near line {body['line']}.)"
         r = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--allowedTools", CONTEXT_TOOLS,
                             "--output-format", "stream-json", "--verbose"],
                            cwd=self.repo, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                            timeout=300)
         events = [json.loads(l) for l in r.stdout.splitlines() if l.startswith("{")]
+        init = next((e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), {})
         result = next((e for e in events if e.get("type") == "result"), None)
+        if init.get("apiKeySource") != "ANTHROPIC_API_KEY":
+            raise RuntimeError(f"claude -p did not use the API key (apiKeySource={init.get('apiKeySource')}).")
         if not result or result.get("is_error"):
             raise RuntimeError((result or {}).get("result") or r.stderr[-500:] or "claude -p failed")
         return self.append({"type": "context", "passage": body["passage"], "file": body["file"],
@@ -202,24 +210,10 @@ class Review:
                             "cost": result.get("total_cost_usd"), "model": MODEL})
 
 
-def profile_env():
-    """The server's environment without the variables of the session that started
-    it, and without any credential that outranks a named profile."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")
-           and k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL")}
-    env["ANTHROPIC_PROFILE"] = PROFILE
-    return env
-
-
-def billed_org(env):
-    """The organization claude bills under env, when that is the Console profile; else None."""
-    r = subprocess.run(["claude", "auth", "status", "--text"], env=env, stdin=subprocess.DEVNULL,
-                       capture_output=True, text=True, timeout=60)
-    lines = r.stdout.strip().splitlines()
-    if not lines or not lines[0].startswith("Profile:") or not lines[0].endswith(f"profile {PROFILE}"):
-        return None
-    org = next((l for l in lines if l.startswith("Organization:")), "")
-    return org.removeprefix("Organization:").split("·")[0].strip() or PROFILE
+def api_key():
+    r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
 
 
 def handler(review, port):
@@ -253,7 +247,7 @@ def handler(review, port):
                 return self.send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == "/api/info":
                 return self.send(200, {"repo": str(review.repo), "base": review.base, "model": MODEL,
-                                       "billed": billed_org(profile_env()), "profile": PROFILE})
+                                       "has_key": api_key() is not None, "service": KEYCHAIN_SERVICE})
             if self.path == "/api/doc":
                 return self.send(200, review.doc())
             if self.path == "/api/state":

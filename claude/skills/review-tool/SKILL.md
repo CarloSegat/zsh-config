@@ -1,6 +1,6 @@
 ---
 name: review-tool
-description: "Open a local page to review text changes since a git ref: each changed passage in full with insertions and deletions marked; the user approves passages, comments on selected text (prompts for Claude) and runs /contextualize on Sonnet, billed to the Console organization. Use for /review-tool [base-ref] [files...]."
+description: "Open a local page to review text changes since a git ref: each changed passage in full with insertions and deletions marked; the user approves passages, comments on selected text (prompts for Claude) and runs /contextualize on Sonnet with Console API credits. Use for /review-tool [base-ref] [files...]."
 argument-hint: [base-ref] [files...]
 disable-model-invocation: true
 ---
@@ -28,6 +28,10 @@ The page shows the reply under the comment and offers a reload when the text cha
 
 ## Contextualize
 
-The button runs `claude -p "/contextualize <selection>"` on `claude-sonnet-5-5` with `ANTHROPIC_PROFILE=default`, the Console login `ant auth login` writes, so it bills that Console organization (the API credits, when it is the one linked under claude.ai Settings > Billing > API credits), not the plan. Before each run it checks with `claude auth status` that the profile is the credential, and refuses otherwise. Without that login the button is disabled; the user runs `ant auth login`. Interactive sessions keep the claude.ai login, which outranks an unnamed profile.
+The button runs `claude -p "/contextualize <selection>"` on `claude-sonnet-5-5`, with the API key from the macOS Keychain service `anthropic-api-credits`, so it spends the Console credits, not the plan. It refuses to run when `claude -p` does not report that key as its credential. Without the key the button is disabled; the user adds it in their own terminal:
+
+`security add-generic-password -a "$USER" -s anthropic-api-credits -w`
+
+(it prompts for the key; take it from the Console organization linked to the plan under claude.ai Settings > Billing > API credits).
 
 State lives in `<repo>/.review/log.jsonl`, append-only and ignored by git: comments, replies, approvals and contextualize results with their cost.

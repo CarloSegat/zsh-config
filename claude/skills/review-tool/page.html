@@ -197,7 +197,7 @@ function renderState() {
   }
   const done = changed.filter(p => S.approved.has(p.id)).length;
   $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
-  $("#spent").textContent = info.billed ? `Contextualize: $${S.spent.toFixed(2)} · ${info.billed}` : "Contextualize off: no Console login";
+  $("#spent").textContent = info.has_key ? `Contextualize: $${S.spent.toFixed(2)} · API credits` : "Contextualize off: no API key";
   renderSide();
 }
 
@@ -359,8 +359,8 @@ async function poll() {
   info = await api("/api/info");
   $("#meta").textContent = `${info.repo.split("/").pop()} vs ${info.base}`;
   const b = $("#ctxbtn");
-  if (!info.billed) { b.disabled = true; b.title = `No Console login in profile "${info.profile}": run ant auth login`; }
-  else b.title = `Runs /contextualize on ${info.model}, billed to ${info.billed}`;
+  if (!info.has_key) { b.disabled = true; b.title = `No API key: add one to the Keychain service "${info.service}"`; }
+  else b.title = `Runs /contextualize on ${info.model} with your API credits`;
   await loadDoc();
   setInterval(poll, 2000);
 })();

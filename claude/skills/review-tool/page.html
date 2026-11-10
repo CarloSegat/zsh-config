@@ -152,7 +152,7 @@ function el(tag, attrs = {}, ...kids) {
   return e;
 }
 
-let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null;
+let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null, build;
 let changed = [];        // changed passages in reading order
 let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
@@ -322,9 +322,10 @@ function renderState() {
     card.classList.toggle("ok", ok);
     const b = $('[data-act="approve"]', card);
     // Approving a passage commits its uncommitted edits (review.py commit()).
-    b.textContent = !ok ? "Approve" : cm?.sha ? `Committed ${cm.sha}` : S.approved.has(p.id) && !cm ? "Committing…" : "Approved";
+    b.textContent = !ok ? "Approve" : cm?.sha ? `Committed ${cm.sha}` : cm?.skipped ? "Already committed"
+      : S.approved.has(p.id) && !cm ? "Committing…" : "Approved";
     b.classList.toggle("approved", ok);
-    card.classList.toggle("done", !!(ok && cm?.sha));   // committed: collapsed to its head
+    card.classList.toggle("done", !!(ok && (cm?.sha || cm?.skipped)));   // committed: collapsed to its head
     if (cm?.error && S.approved.has(p.id)) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
     for (const h of p.hs) {
       const ok = hunkOk(p, h);
@@ -683,6 +684,8 @@ async function poll() {
   loading = true;
   try {
     const s = await api("/api/state");
+    // New tool code: reload, so no click runs old page code against a new server.
+    if ((build ??= s.build) !== s.build && !document.querySelector(".composer")) return location.reload();
     if (s.version !== version && !selecting()) await loadDoc();
     else if (s.log !== logLen) { log = await api("/api/log"); logLen = log.length; derive(); renderState(); }
   } catch (_) { /* server restarting: try again next tick */ }

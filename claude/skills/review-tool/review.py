@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+SERVER_BUILD = Path(__file__).resolve().stat().st_mtime_ns   # the code this server runs
 KEYCHAIN_SERVICE = "anthropic-api-credits"
 MODELS = {"Sonnet": "claude-sonnet-5-5", "Opus": "claude-opus-5-5"}   # the page offers each for a comment
 MODEL = MODELS["Sonnet"]
@@ -682,7 +683,9 @@ def handler(review, port):
             if self.path == "/api/doc":
                 return self.send(200, review.doc())
             if self.path == "/api/state":
-                return self.send(200, {"version": review.version(), "log": len(review.log())})
+                # build: the page reloads itself when it differs from the code it was loaded with.
+                return self.send(200, {"version": review.version(), "log": len(review.log()),
+                                       "build": f"{SERVER_BUILD}-{(HERE / 'page.html').stat().st_mtime_ns}"})
             if self.path == "/api/log":
                 return self.send(200, review.log())
             self.send(404, {"error": "not found"})

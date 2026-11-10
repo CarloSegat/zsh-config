@@ -60,8 +60,9 @@ del { background: var(--del-bg); color: var(--del); text-decoration: line-throug
 .hunk { cursor: pointer; border-radius: 3px; }
 .hunk:hover { outline: 1px solid var(--accent); outline-offset: 1px; }
 .hunk.on { outline: 2px solid var(--accent); outline-offset: 1px; }
-.hunk.ok { opacity: .55; }
-.hunk.ok::after { content: "✓"; color: var(--ok); font: 600 11px var(--ui); vertical-align: super; }
+/* An approved change reads as the new text alone, still clickable. */
+.hunk.ok del, .hunk.ok .mark { display: none; }
+.hunk.ok ins { background: none; border-bottom: 0; }
 button { font: 12.5px var(--ui); border: 1px solid var(--line); background: var(--panel); color: var(--fg);
   border-radius: 5px; padding: 3px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -186,7 +187,7 @@ function renderDoc() {
         // A paragraph break removed or added shows as a marked ¶, not as blank lines.
         const brk = /^\s*\n\s*\n\s*$/.test(t);
         if (o === "-") { h.old += t; h.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : t)); }
-        else { h.neu += t; brk ? h.append(el("ins", { title: "paragraph break added" }, " ¶"), t) : h.append(el("ins", {}, t)); }
+        else { h.neu += t; brk ? h.append(el("ins", { class: "mark", title: "paragraph break added" }, " ¶"), t) : h.append(el("ins", {}, t)); }
       }
       const card = el("article", { class: "card", id: "p-" + p.id },
         el("div", { class: "head" },
@@ -369,15 +370,23 @@ function updateTool() {
   const r = pending.range.getBoundingClientRect();
   tool.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 220)) + "px";
   tool.style.top = (r.bottom + scrollY + 6) + "px";
-  tool.hidden = false;
+  hideMenu(); tool.hidden = false;
 }
 // Mouse selections settle on mouseup; keyboard ones (shift+arrows) on selectionchange.
-let mouseDown = false, settle;
+// Any press outside the two bars closes both; a plain click (no drag, single
+// click) never opens the selection bar, even if a selection survives it.
+let mouseDown = false, settle, downAt = null;
 document.addEventListener("mousedown", ev => {
-  if (!hmenu.contains(ev.target)) hideMenu();
-  if (!tool.contains(ev.target) && !hmenu.contains(ev.target)) mouseDown = true;
+  if (tool.contains(ev.target) || hmenu.contains(ev.target)) return;
+  hideMenu(); tool.hidden = true; pending = null;
+  mouseDown = true; downAt = [ev.clientX, ev.clientY];
 });
-document.addEventListener("mouseup", () => { mouseDown = false; setTimeout(updateTool); });
+document.addEventListener("mouseup", ev => {
+  if (!mouseDown) return;
+  mouseDown = false;
+  const moved = downAt && Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 3;
+  if (moved || ev.detail > 1) setTimeout(updateTool);
+});
 document.addEventListener("selectionchange", () => {
   if (mouseDown) return;
   clearTimeout(settle); settle = setTimeout(updateTool, 150);
@@ -418,6 +427,7 @@ async function unapprove(p, keep = []) {
 function hideMenu() { hmenu.hidden = true; menuFor?.classList.remove("on"); menuFor = null; }
 function openMenu(h) {
   hideMenu();
+  tool.hidden = true; pending = null;
   menuFor = h; h.classList.add("on");
   const p = h.closest(".card").passage, ok = hunkOk(p, h);
   const b = $('[data-h="approve"]', hmenu);
@@ -453,7 +463,10 @@ hmenu.addEventListener("click", async ev => {
     } catch (err) { hideMenu(); alertIn($(".thread", card), err); if (/changed/.test(err.message)) loadDoc(true); }
   }
 });
-document.addEventListener("keydown", ev => { if (ev.key === "Escape") hideMenu(); });
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Escape" || ev.target.closest("textarea")) return;
+  hideMenu(); tool.hidden = true; pending = null; getSelection().removeAllRanges();
+});
 
 $("#doc").addEventListener("click", async ev => {
   const h = ev.target.closest(".hunk");

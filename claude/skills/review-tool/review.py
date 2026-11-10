@@ -5,7 +5,7 @@
     review.py reply --repo DIR ID TEXT
     review.py open --repo DIR
 """
-import argparse, bisect, copy, difflib, functools, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
+import argparse, bisect, copy, difflib, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -26,7 +26,7 @@ Do what the comment asks, editing the files, under the rules of this repository'
 Then answer in 1 to 3 sentences: the changed sentence quoted in full, or your question. Nothing else."""
 MESSAGE_PROMPT = """Write the git commit message for the staged change (read it with git diff --cached), following the commit rules of this repository's CLAUDE.md files. The edits were made during a review and approved by the author. Output the message only."""
 MESSAGE = re.compile(r"(feat|fix|test|docs|refactor|tools)\([^()\n]+\)\n\n[^\n]+\n\n\S[\s\S]*")
-PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk", "dismiss", "split"}
+PAGE_TYPES = {"comment", "dismiss", "split"}
 # A reference, label, environment or inline math is one token, so a diff never
 # splits it and the page can render it.
 TOKEN = re.compile(r"\\(?:cite[a-z]*|ref|eqref|autoref|cref|label|path|url|begin|end|input|includegraphics)\*?"
@@ -269,93 +269,6 @@ def passages(path, old, new):
     return out
 
 
-@functools.lru_cache(maxsize=4096)
-def matched(a, b):
-    """Tokens of a found, in order, in b, and the token count of a and of b."""
-    ta, tb = TOKEN.findall(a), TOKEN.findall(b)
-    sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
-    return sum(m.size for m in sm.get_matching_blocks()), len(ta), len(tb)
-
-
-def approved_for(cands, new):
-    """The approved text that new grew from: most of it survives in new, and it
-    is no stray phrase beside it. The one sharing most of new wins."""
-    best, most = None, 0
-    for c in cands:
-        m, la, lb = matched(c, new)
-        if la and m >= 0.6 * la and la >= 0.15 * lb and m > most:
-            best, most = c, m
-    return best
-
-
-def since_approved(path, ps, approved, cuts):
-    """Show a hunk changed after its approval as the change since: its segments
-    become the diff from the text approved for the same base text, each change
-    tagged with an index into the passage's "subs". A hunk a split line crosses
-    is tagged the same way against its base text, cut there. A sub carries the
-    hunk's base key (old, new), the approved text `prev`, and its own change to
-    prev: `ins` in place of prev[a:b]."""
-    mine = {}
-    for f, o, n in approved:
-        if f == path and n:
-            mine.setdefault(o, []).append(n)
-    for p in ps:
-        if p["kind"] != "changed":
-            continue
-        at = cuts.get(p["id"], [])
-        out, run, p["subs"], p["base"] = [], [], [], p["segs"]
-        pos = 0   # in the passage's new text
-
-        def flush():
-            nonlocal pos
-            old = "".join(t for o, t in run if o == "-")
-            new = "".join(t for o, t in run if o == "+")
-            start = pos
-            prev = None if (path, old, new) in approved else approved_for(mine.get(old, ()), new)
-            if prev is None and not any(start < c < start + len(new) for c in at):
-                out.extend(run)
-                pos += len(new)
-                run.clear()
-                return
-            segs = run[:] if prev is None else word_diff(prev, new)
-            prev = old if prev is None else prev
-            ppos, cur = 0, None
-            for o, t in segs:
-                for piece in cut_at(o, t, pos, at):
-                    if o == "=":
-                        out.append([o, piece])
-                        cur = None
-                    else:
-                        side = bisect.bisect_right(at, pos)
-                        if cur is None or cur["side"] != side:
-                            cur = {"old": old, "new": new, "prev": prev, "a": ppos, "b": ppos, "ins": "", "side": side}
-                            p["subs"].append(cur)
-                        if o == "-":
-                            cur["b"] = ppos + len(piece)
-                        else:
-                            cur["ins"] += piece
-                        out.append([o, piece, len(p["subs"]) - 1])
-                    if o != "-":
-                        pos += len(piece)
-                    if o != "+":
-                        ppos += len(piece)
-            run.clear()
-
-        for seg in p["segs"]:
-            if seg[0] == "=":
-                flush()
-                for piece in cut_at("=", seg[1], pos, at):
-                    out.append(["=", piece])
-                    pos += len(piece)
-            else:
-                run.append(seg)
-        flush()
-        p["segs"] = out
-        for sub in p["subs"]:
-            del sub["side"]
-    return ps
-
-
 def cut_at(o, t, pos, at):
     """Segment text t at pos, in pieces that no position in `at` falls inside."""
     if o == "-":
@@ -368,73 +281,153 @@ def cut_at(o, t, pos, at):
     return out + [t[last:]]
 
 
-def split(path, ps, cuts):
-    """Cut each passage at its split positions; a removed text there opens the
-    later part. A part's id and kind depend on its own diff from the base, so
-    approving, editing or splitting another part leaves them as they were."""
-    out, seen = [], {}
-    for p in ps:
-        base = p.pop("base", p["segs"])
-        at = cuts.get(p["id"])
-        if not at:
-            out.append(p)
+def pieces(segs, at):
+    """Segments cut at positions `at` of their new text, as 1 list per part; a
+    removed text there opens the later part."""
+    parts, pos = [[] for _ in range(len(at) + 1)], 0
+    for o, t in segs:
+        for piece in cut_at(o, t, pos, at):
+            parts[bisect.bisect_right(at, pos)].append([o, piece])
+            if o != "-":
+                pos += len(piece)
+    return parts
+
+
+def old_place(segs, c):
+    """Where place c of a diff's new text is in its old text; a removal at c
+    comes after it."""
+    a = b = 0
+    for o, t in segs:
+        if o == "-":
+            if b == c:
+                return a
+            a += len(t)
+        elif b <= c < b + len(t):
+            return a + (c - b if o == "=" else 0)
+        else:
+            a, b = a + (len(t) if o == "=" else 0), b + len(t)
+    return a
+
+
+def similar(a, b):
+    """The words of a found, in order, in b, a's word count, and how alike a and
+    b are, counting spaces too (2 * tokens found / tokens of both)."""
+    def found(ta, tb):
+        return sum(m.size for m in difflib.SequenceMatcher(None, ta, tb, autojunk=False).get_matching_blocks())
+    ta, tb = TOKEN.findall(a), TOKEN.findall(b)
+    words = [[t for t in x if not t.isspace()] for x in (ta, tb)]
+    return found(*words), len(words[0]), 2 * found(ta, tb) / ((len(ta) + len(tb)) or 1)
+
+
+def match(units, records):
+    """The approve_text record in force for each unit (a changed passage before
+    splitting), or None. A record goes with a unit of its base text; units and
+    records of one base pair 1 to 1, the most alike first. Inserted text has
+    base "", so its record goes only to a unit holding half its words or more."""
+    groups, out = {}, [None] * len(units)
+    for x, u in enumerate(units):
+        groups.setdefault(u["base"], ([], []))[0].append(x)
+    for y, r in enumerate(records):
+        if r["base"] in groups:
+            groups[r["base"]][1].append(y)
+    for base, (xs, ys) in groups.items():
+        if base and len(xs) == len(ys) == 1:
+            out[xs[0]] = records[ys[0]]
             continue
-        olds, news, changed, pos = [""] * (len(at) + 1), [""] * (len(at) + 1), set(), 0
-        for o, t, *_ in base:
-            for piece in cut_at(o, t, pos, at):
-                i = bisect.bisect_right(at, pos)
-                if o != "+":
-                    olds[i] += piece
-                if o != "-":
-                    news[i] += piece
-                    pos += len(piece)
-                if o != "=":
-                    changed.add(i)
-        parts = [[] for _ in range(len(at) + 1)]
-        pos = 0
-        for seg in p["segs"]:
-            parts[bisect.bisect_right(at, pos)].append(seg)
-            if seg[0] != "-":
-                pos += len(seg[1])
-        text, old_at = "".join(news), p["old_at"]
-        for i, segs in enumerate(parts):
-            subs, index = [], {}
-            for seg in segs:
-                if len(seg) > 2:
-                    if seg[2] not in index:
-                        index[seg[2]] = len(subs)
-                        subs.append(p["subs"][seg[2]])
-                    seg[2] = index[seg[2]]
-            pid = hashlib.sha1(f"{path}\0{olds[i]}\0{news[i]}\0part".encode()).hexdigest()[:12]
-            seen[pid] = seen.get(pid, 0) + 1
-            off = at[i - 1] if i else 0
-            start = p["start"] + text.count("\n", 0, off)
-            end = start + news[i].rstrip().count("\n")
-            out.append({"id": pid + (f"-{seen[pid]}" if seen[pid] > 1 else ""), "file": path, "start": start,
-                        "end": end, "kind": "changed" if i in changed else "same", "segs": segs, "subs": subs,
-                        "at": p["at"] + off, "old_at": old_at, "par": p["par"], "key": [p["par"], end]})
-            old_at += len(olds[i])
+        pairs = []
+        for x in xs:
+            for y in ys:
+                m, n, alike = similar(records[y]["text"], new_of(units[x]["segs"]))
+                if base or 2 * m >= n > 0:
+                    pairs.append((-m, -alike, x, -y))   # most words, most alike, the first unit, the latest record
+        used = set()
+        for *_, x, y in sorted(pairs):
+            if out[x] is None and -y not in used:
+                out[x] = records[-y]
+                used.add(-y)
     return out
 
 
-def cut(path, ps, at, approved=()):
-    """Passages ps of a diff to new as the page shows them: cut at the positions
-    `at` of new inside them, a change made after its approval shown as the
-    change since."""
-    cuts = {}
+def approvals(units, records, cmap):
+    """Give each unit (changed passage) its approval: "base", its text at the
+    base, which keys its approve_text records; "rec", the record in force (or
+    None); and, with one, "shows": the diff from the approved text to the
+    unit's text, 1 per part between the split positions cmap ({position: split
+    entry id}). A part's share of the approved text starts where the record
+    says ("cuts", by split entry), else where the whole diff puts it."""
+    for u in units:
+        u["base"] = old_of(u["segs"])
+    for u, r in zip(units, match(units, records)):
+        u["rec"] = r and r["id"]
+        if not r:
+            continue
+        a, w = r["text"], new_of(u["segs"])
+        at = [(x - u["at"], s) for x, s in cmap.items() if u["at"] < x < u["at"] + len(w)]
+        whole = word_diff(a, w) if at else None
+        alpha = [r.get("cuts", {}).get(s, old_place(whole, c)) for c, s in at]
+        if alpha != sorted(alpha) or any(not 0 <= x <= len(a) for x in alpha):
+            alpha = [old_place(whole, c) for c, _ in at]
+        cs, al = [0, *(c for c, _ in at), len(w)], [0, *alpha, len(a)]
+        u["shows"] = [word_diff(a[al[i]:al[i + 1]], w[cs[i]:cs[i + 1]]) for i in range(len(cs) - 1)]
+
+
+def split(path, ps, cmap):
+    """Cut each passage at its split positions (cmap: {position in the new text:
+    split entry id}); a removed text there opens the later part. A part's id and
+    kind depend on its own diff from the base, so approving, editing or
+    splitting another part leaves them as they were. A part shows its share of
+    the passage's "shows" (the diff from its approved text), else of its own
+    diff, and carries "unit" (the passage's id), "base" and "rec" (its
+    approval), "split" (the split entry it starts at), "a_at" (where its share
+    starts in the approved text) and "whole": the hunk of the passage, as [old,
+    new], each of its hunks is in."""
+    out, seen = [], {}
     for p in ps:
-        c = [x - p["at"] for x in at if p["kind"] == "changed" and p["at"] < x < p["at"] + len(new_of(p["segs"]))]
-        if c:
-            cuts[p["id"]] = c
-    return split(path, since_approved(path, ps, approved, cuts), cuts)
+        w = new_of(p["segs"])
+        cut = [(x - p["at"], s) for x, s in cmap.items() if p["kind"] == "changed" and p["at"] < x < p["at"] + len(w)]
+        at = [c for c, _ in cut]
+        raw = pieces(p["segs"], at)
+        shows = p.pop("shows", None) or raw
+        whole, tag, run = [], [], False   # the passage's hunks, and the one each segment is in
+        for segs in shows:
+            tag.append([])
+            for o, t in segs:
+                if o == "=":
+                    run = False
+                elif not run:
+                    whole.append(["", ""])
+                    run = True
+                if o != "=":
+                    whole[-1][o == "+"] += t
+                tag[-1].append(len(whole) - 1)
+        old_at, a_at = p["old_at"], 0
+        for i, segs in enumerate(shows):
+            mine = [whole[k] for n, k in enumerate(tag[i]) if segs[n][0] != "=" and (n == 0 or segs[n - 1][0] == "=")]
+            part = {**p, "segs": segs, "unit": p["id"], "base": p.get("base", old_of(p["segs"])), "rec": p.get("rec"),
+                    "split": cut[i - 1][1] if i else None, "a_at": a_at, "whole": mine}
+            a_at += len(old_of(segs))
+            if at:
+                olds, news = old_of(raw[i]), new_of(raw[i])
+                pid = hashlib.sha1(f"{path}\0{olds}\0{news}\0part".encode()).hexdigest()[:12]
+                seen[pid] = seen.get(pid, 0) + 1
+                off = at[i - 1] if i else 0
+                start = p["start"] + w.count("\n", 0, off)
+                end = start + news.rstrip().count("\n")
+                changed = any(o != "=" for o, _ in raw[i] + segs)
+                part.update({"id": pid + (f"-{seen[pid]}" if seen[pid] > 1 else ""), "start": start, "end": end,
+                             "kind": "changed" if changed else "same", "at": p["at"] + off, "old_at": old_at,
+                             "key": [p["par"], end]})
+                old_at += len(olds)
+            out.append(part)
+    return out
 
 
 def cuts(ps, splits):
     """Where the reviewer's split entries cut the changed passages ps, as
-    positions in their new text. A split stays with its passage (the one it was
-    made on, else the one holding its line), at the line reading as its anchor
-    nearest its line, else at its line."""
-    live, out = [p for p in ps if p["kind"] == "changed"], set()
+    {position in their new text: the split entry's id}. A split stays with its
+    passage (the one it was made on, else the one holding its line), at the
+    line reading as its anchor nearest its line, else at its line."""
+    live, out = [p for p in ps if p["kind"] == "changed"], {}
     for e in splits:
         p = next((p for p in live if p["id"] == e.get("passage")), None) or \
             next((p for p in live if p["start"] < e["line"] <= p["end"]), None)
@@ -443,8 +436,8 @@ def cuts(ps, splits):
         lines, want = new_of(p["segs"]).split("\n"), e["line"] - p["start"]
         k = min([k for k in range(1, len(lines)) if lines[k] == e.get("text")] or [want], key=lambda k: abs(k - want))
         if 0 < k < len(lines) and lines[k].strip() and any(l.strip() for l in lines[:k]):
-            out.add(p["at"] + sum(len(l) + 1 for l in lines[:k]))
-    return sorted(out)
+            out.setdefault(p["at"] + sum(len(l) + 1 for l in lines[:k]), e.get("id"))
+    return dict(sorted(out.items()))
 
 
 def rebase(head, base, work, ps):
@@ -466,32 +459,84 @@ def rebase(head, base, work, ps):
         at, o, n = nxt, oa + len(a), na + len(b)
 
 
-def view(path, base, head, work, splits=(), approved=()):
-    """A file's passages as the page shows them (the diff from base, cut at the
-    reviewer's splits), and the changes from head that commits make: the shown
-    ones not in head yet when head is base with some shown passages made, else
-    the diff from head cut the same way. Then a change from head the base diff
-    does not show (a committed change reverted) shows as itself."""
+def view(path, base, head, work, splits=(), records=(), edits=None):
+    """A file's passages as the page shows them, and the changes from head that
+    commits make. The page shows the diff from base cut at the reviewer's
+    splits, each passage against its approved text (records), each hunk with
+    the edit that made it (edits: {(old, new): edit id}, by the passage's hunk
+    it is in) and "dirty" when its lines differ from head. Commits make the
+    shown passages not in head yet when head is base with some made, else the
+    diff from head cut the same way; then a change from head the base diff
+    does not show (a committed change reverted) shows as a passage of its own."""
     ps = passages(path, base, work)
-    at = cuts(ps, splits)
-    ours = rebase(head, base, work, cut(path, copy.deepcopy(ps), at))
-    shown = cut(path, ps, at, approved)
-    if ours is not None:
-        return shown, ours
-    ours = cut(path, passages(path, head, work), at)
-    where = {tuple(q["key"]): i for i, q in enumerate(shown)}
-    extra = []
-    for u in ours:
-        i = where.get(tuple(u["key"]))
-        if u["kind"] != "changed":
-            continue
-        if i is None:
-            extra.append(u)
-        elif shown[i]["kind"] != "changed":
-            shown[i] = u
+    cmap = cuts(ps, splits)
+    raw = split(path, copy.deepcopy(ps), cmap)
+    ours, extra, put = rebase(head, base, work, raw), [], {}
+    if ours is None:
+        ours = split(path, passages(path, head, work), cmap)
+        where = {tuple(q["key"]): i for i, q in enumerate(raw)}
+        for u in ours:
+            i = where.get(tuple(u["key"]))
+            if u["kind"] != "changed":
+                continue
+            if i is None:
+                extra.append(dict(u))
+            elif raw[i]["kind"] != "changed":
+                put[i] = dict(u)
+    approvals([p for p in ps if p["kind"] == "changed"] + extra + list(put.values()), records, cmap)
+    shown = split(path, ps, cmap)
+    for i, u in put.items():
+        shown[i] = split(path, [u], {})[0]
     for u in extra:
+        u = split(path, [u], {})[0]
         shown.insert(bisect.bisect_left([q["at"] for q in shown], u["at"]), u)
+    for p in shown:
+        p["dirty"] = any(u["kind"] == "changed" and u["key"] == p["key"] for u in ours)
+        p["edits"] = [(edits or {}).get(tuple(h)) for h in p.pop("whole")]
     return shown, ours
+
+
+def unit_hunks(path, base, work, splits=(), records=()):
+    """The hunks, as (old, new), of the changed passages of the diff from base
+    to work, each against its approved text, before the splits cut them."""
+    ps = [p for p in passages(path, base, work) if p["kind"] == "changed"]
+    cmap = cuts(ps, splits)
+    approvals(ps, records, cmap)
+    return {tuple(h) for p in split(path, ps, cmap) for h in p["whole"]}
+
+
+def approve_texts(shown, pick, texts):
+    """The approve_text entries that make hunks `pick` ({part id: hunk
+    indices}) of the parts shown: per passage, its approved text (texts:
+    {record id: text}, else its base) with those hunks made, and where each of
+    its parts starts in it now ("cuts", by split entry)."""
+    units, out = {}, []
+    for p in shown:
+        units.setdefault(p["unit"], []).append(p)
+    for parts in units.values():
+        if not any(pick.get(p["id"]) for p in parts):
+            continue
+        first = parts[0]
+        text, shift, at = texts[first["rec"]] if first["rec"] else first["base"], 0, {}
+        for p in parts:
+            old, start = old_of(p["segs"]), p["a_at"] + shift
+            if text[start:start + len(old)] != old:
+                raise LookupError("the passage changed since the page loaded")
+            if p["split"]:
+                at[p["split"]] = start
+            if p["id"] not in pick:
+                continue
+            ks, k, run, new = pick[p["id"]], -1, False, ""
+            for o, t in p["segs"]:
+                if o != "=" and not run:
+                    k += 1
+                run = o != "="
+                if o == "=" or (o == "+") == (k in ks):
+                    new += t
+            text, shift = text[:start] + new + text[start + len(old):], shift + len(new) - len(old)
+        out.append({"type": "approve_text", "file": first["file"], "base": first["base"], "text": text,
+                    **({"cuts": at} if at else {}), **({"replaces": first["rec"]} if first["rec"] else {})})
+    return out
 
 
 def hunks(segs):
@@ -549,51 +594,98 @@ class Review:
         self.track()
         return {"files": [{"path": p, "passages": self.shown(p)} for p in self.files]}
 
-    def view(self, path, head="HEAD"):
-        """view() of a reviewed file, and head's text."""
-        approved, splits = set(), []
+    def state(self, path):
+        """The log's splits of a file, its approve_text records in force (an entry
+        replaces the one it names; one back to the base text approves nothing)
+        and its edits, {(old, new): the latest edit with that hunk}."""
+        splits, records, edits = [], {}, {}
         for e in self.log():
             if e.get("file") != path:
                 continue
-            k = (path, e.get("old"), e.get("new"))
-            if e["type"] == "approve_hunk":
-                approved.add(k)
-            elif e["type"] == "unapprove_hunk":
-                approved.discard(k)
-            elif e["type"] == "split":
+            if e["type"] == "split":
                 splits.append(e)
+            elif e["type"] == "approve_text":
+                records.pop(e.get("replaces"), None)
+                if e["text"] != e["base"]:
+                    records[e["id"]] = e
+            elif e["type"] == "edit":
+                edits.update({(o, n): e["id"] for o, n in e["hunks"]})
+        return splits, list(records.values()), edits
+
+    def view(self, path, head="HEAD"):
+        """view() of a reviewed file, and head's text."""
         r = git(self.repo, "show", f"{head}:{path}")
         old = r.stdout if r.returncode == 0 else ""
-        return (*view(path, self.old_text(path), old, self.text(path), splits, approved), old)
+        return (*view(path, self.old_text(path), old, self.text(path), *self.state(path)), old)
 
     def shown(self, path):
         return self.view(path)[0]
 
-    def keys(self, path, text):
-        return {(h[2], h[3]) for p in passages(path, self.old_text(path), text) if p["kind"] == "changed"
-                for h in hunks(p["segs"])}
-
     def track(self):
         """Log the hunks each change to a reviewed file introduced, as one edit the
-        page can approve in one click. Before the first look, the file is taken as
-        it was at HEAD, so the uncommitted changes form the first edit."""
+        page can approve in one click: those the page shows now (against the
+        approved texts, before splits) and did not show for the text before.
+        Before the first look, the file is taken as it was at HEAD, so the
+        uncommitted changes form the first edit."""
         with self.track_lock:
             for path in self.files:
                 text = self.text(path)
                 if path not in self.seen:
                     head = git(self.repo, "show", f"HEAD:{path}")
-                    head_text = head.stdout if head.returncode == 0 else ""
-                    self.seen[path] = (head_text, self.keys(path, head_text))
-                if self.seen[path][0] == text:
+                    self.seen[path] = head.stdout if head.returncode == 0 else ""
+                if self.seen[path] == text:
                     continue
-                keys = self.keys(path, text)
-                new = keys - self.seen[path][1]
+                splits, records, _ = self.state(path)
+                new = unit_hunks(path, self.old_text(path), text, splits, records) - \
+                    unit_hunks(path, self.old_text(path), self.seen[path], splits, records)
                 if new:
                     self.append({"type": "edit", "file": path, "hunks": sorted(map(list, new))})
-                self.seen[path] = (text, keys)
+                self.seen[path] = text
+
+    def approve(self, body):
+        """Approve hunks the page showed: each item {file, passage, hunks: [k, ...]
+        or "all", seen: [[old, new], ...]} makes those hunks in its passage's
+        approved text. A passage (or part) then left with no hunk and with
+        uncommitted lines is approved whole, which commits it. Refused, with
+        nothing logged, when a passage or the hunks the page saw are gone."""
+        items, out = body if isinstance(body, list) else [body], []
+        with self.edit:
+            todo = []
+            for path in dict.fromkeys(it["file"] for it in items):
+                if path not in self.files:
+                    raise LookupError("not a reviewed file")
+                shown, pick = self.shown(path), {}
+                for it in (it for it in items if it["file"] == path):
+                    p = next((p for p in shown if p["id"] == it["passage"]), None)
+                    hs = hunks(p["segs"]) if p else []
+                    ks = list(range(len(hs))) if it["hunks"] == "all" else it["hunks"]
+                    if not p or not all(isinstance(k, int) and 0 <= k < len(hs) for k in ks) or \
+                            [list(hs[k][2:]) for k in ks] != it["seen"]:
+                        raise LookupError("the passage changed since the page loaded")
+                    pick[p["id"]] = set(ks)
+                texts = {r["id"]: r["text"] for r in self.state(path)[1]}
+                todo.append((path, pick, approve_texts(shown, pick, texts)))
+            for path, pick, entries in todo:
+                out += [self.append(e) for e in entries]
+                for p in self.shown(path):
+                    if p["id"] in pick and p["dirty"] and not hunks(p["segs"]):
+                        e = self.append({"type": "approve", "passage": p["id"], "file": path, "line": p["start"]})
+                        self.enqueue(e)
+                        out.append(e)
+        return out
+
+    def withdraw(self, body):
+        """Put the approved text of the passage a part is in back to its base text."""
+        with self.edit:
+            p = next((p for p in self.shown(body["file"]) if p["id"] == body["passage"]), None) \
+                if body["file"] in self.files else None
+            if not p or not p["rec"]:
+                raise LookupError("nothing approved in the passage")
+            return self.append({"type": "approve_text", "file": p["file"], "base": p["base"], "text": p["base"],
+                                "replaces": p["rec"]})
 
     def version(self):
-        h = hashlib.sha1(self.base.encode())
+        h = hashlib.sha1((self.base + git(self.repo, "rev-parse", "HEAD").stdout).encode())   # a commit changes what is dirty
         for p in self.files:
             f = self.repo / p
             st = f.stat() if f.exists() else None
@@ -610,8 +702,9 @@ class Review:
         return entry
 
     def revert(self, body):
-        """Put one hunk's old text (base, or approved for a change since approval)
-        back into the file, if the passage still reads as the page showed it."""
+        """Put one hunk's old text (the approved text, else the base) back into the
+        file, if the passage and the hunk ("seen": [old, new]) still read as the
+        page showed them."""
         path = body["file"]
         if path not in self.files:
             raise LookupError("not a reviewed file")
@@ -620,7 +713,8 @@ class Review:
             hs = hunks(p["segs"]) if p else []
             k = int(body["hunk"])
             text, shown = self.text(path), new_of(p["segs"]) if p else ""
-            if not 0 <= k < len(hs) or text[p["at"]:p["at"] + len(shown)] != shown:
+            if not 0 <= k < len(hs) or text[p["at"]:p["at"] + len(shown)] != shown or \
+                    body.get("seen", list(hs[k][2:])) != list(hs[k][2:]):
                 raise LookupError("the passage changed since the page loaded")
             start, end, old, new = hs[k]
             (self.repo / path).write_text(text[:p["at"] + start] + old + text[p["at"] + end:])
@@ -896,13 +990,14 @@ def handler(review, port):
                         return self.send(400, {"error": "bad type"})
                     if body.get("model", MODEL) not in MODELS.values():
                         return self.send(400, {"error": "bad model"})
-                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "old", "new", "to", "model") if k in body}
+                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "to", "model") if k in body}
                     e = review.append(keep)
                     review.enqueue(e)
                     return self.send(200, e)
-                if self.path == "/api/revert":
+                act = {"/api/revert": review.revert, "/api/approve": review.approve, "/api/withdraw": review.withdraw}
+                if self.path in act:
                     try:
-                        return self.send(200, review.revert(body))
+                        return self.send(200, act[self.path](body))
                     except LookupError as e:
                         return self.send(409, {"error": str(e)})
                 if self.path == "/api/contextualize":

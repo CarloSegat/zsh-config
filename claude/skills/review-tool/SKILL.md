@@ -1,6 +1,6 @@
 ---
 name: review-tool
-description: "Open a local page to review text changes since a git ref: each changed passage in full with insertions and deletions marked; the user approves passages, comments on selected text (prompts for Claude) and runs /contextualize on Sonnet with Console API credits. Use for /review-tool [base-ref] [files...]."
+description: "Open a local page to review text changes since a git ref: each changed passage in full with insertions and deletions marked; the user approves or reverts single changes, approves passages, comments on selected text (prompts for Claude) and runs /contextualize on Sonnet with Console API credits. Use for /review-tool [base-ref] [files...]."
 argument-hint: [base-ref] [files...]
 disable-model-invocation: true
 ---
@@ -16,7 +16,7 @@ Arguments: $ARGUMENTS
    `python3 ~/.claude/skills/review-tool/review.py serve --base <ref> <files...>`
    It prints the URL (port 8765 or the next free one). Open it with `open <url>` and give it to the user.
 3. Watch the log with Monitor (`timeout_ms` 1800000, re-armed at each expiry while the server runs):
-   `tail -n0 -F .review/log.jsonl | grep --line-buffered '"type": "comment"'`
+   `tail -n0 -F .review/log.jsonl | grep --line-buffered -E '"type": "(comment|revert)"'`
 
 ## Act on each comment
 
@@ -24,7 +24,9 @@ A comment is a prompt from the user, anchored to `file`, `line` and the selected
 
 `python3 ~/.claude/skills/review-tool/review.py reply <id> "<text>"`
 
-The page shows the reply under the comment, with buttons to approve the passage or comment again, and re-renders by itself when the text changes. A comment that needs the user's decision gets a reply with the question; the user answers in a new comment. After a restart, `review.py open` lists comments without a reply.
+The page shows the reply under the comment, with buttons to approve the passage or comment again, and re-renders by itself when the text changes. Clicking one change (a deletion with its insertion) offers Approve, Revert and Comment.
+
+A `revert` entry means the server already wrote the base text back into the file (`removed` went, `restored` came back). Bring whatever describes that change (a change log, a response letter) in step, then reply to its id the same way. A comment that needs the user's decision gets a reply with the question; the user answers in a new comment. After a restart, `review.py open` lists comments without a reply.
 
 ## Contextualize
 

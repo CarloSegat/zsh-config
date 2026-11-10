@@ -57,6 +57,11 @@ main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
 .text { font: 15.5px/1.62 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; }
 ins { text-decoration: none; background: var(--ins-bg); border-bottom: 2px solid var(--ins); }
 del { background: var(--del-bg); color: var(--del); text-decoration: line-through; }
+.hunk { cursor: pointer; border-radius: 3px; }
+.hunk:hover { outline: 1px solid var(--accent); outline-offset: 1px; }
+.hunk.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hunk.ok { opacity: .55; }
+.hunk.ok::after { content: "✓"; color: var(--ok); font: 600 11px var(--ui); vertical-align: super; }
 button { font: 12.5px var(--ui); border: 1px solid var(--line); background: var(--panel); color: var(--fg);
   border-radius: 5px; padding: 3px 9px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -80,7 +85,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
 .composer .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 .composer .row .hint { color: var(--muted); font-size: 11.5px; margin-right: auto; }
-#tool { position: absolute; z-index: 10; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+#tool, #hmenu { position: absolute; z-index: 10; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
 .empty { color: var(--muted); font-size: 12.5px; padding: 3px 6px; }
 .keys { color: var(--muted); font-size: 11.5px; margin-top: 18px; line-height: 1.7; }
@@ -108,6 +113,11 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
   <button data-act="comment">Comment</button>
   <button data-act="context" id="ctxbtn">Contextualize</button>
 </div>
+<div id="hmenu" hidden>
+  <button data-h="approve">Approve</button>
+  <button data-h="revert">Revert</button>
+  <button data-h="comment">Comment</button>
+</div>
 <script>
 const H = { "Content-Type": "application/json", "X-Review": "1" };
 async function api(path, body) {
@@ -130,11 +140,15 @@ let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
 
 function derive() {
-  S = { approved: new Set(), comments: [], replies: {}, contexts: [], spent: 0, open: [] };
+  S = { approved: new Set(), hunks: new Set(), comments: [], notes: [], replies: {}, contexts: [], spent: 0, open: [] };
   for (const e of log) {
     if (e.type === "approve") S.approved.add(e.passage);
     if (e.type === "unapprove") S.approved.delete(e.passage);
-    if (e.type === "comment") S.comments.push(e);
+    // A hunk's approval is keyed by its text, so it survives edits elsewhere in the passage.
+    if (e.type === "approve_hunk") S.hunks.add(hkey(e.file, e.old, e.new));
+    if (e.type === "unapprove_hunk") S.hunks.delete(hkey(e.file, e.old, e.new));
+    if (e.type === "comment") { S.comments.push(e); S.notes.push(e); }
+    if (e.type === "revert") S.notes.push(e);
     if (e.type === "reply") (S.replies[e.to] ||= []).push(e);
     if (e.type === "context") { S.contexts.push(e); S.spent += e.cost || 0; }
   }
@@ -143,13 +157,13 @@ function derive() {
 
 // The passage a note belongs to. Editing a passage changes its id, so a note
 // whose passage is gone follows its file and line to the passage there now.
-function home(e) {
+function home(e, near = true) {
   if (changed.some(p => p.id === e.passage)) return e.passage;
   const ps = changed.filter(p => p.file === e.file);
   if (!ps.length) return null;
-  const hit = ps.find(p => e.line >= p.start && e.line <= p.end)
-    || ps.reduce((a, b) => Math.abs(b.start - e.line) < Math.abs(a.start - e.line) ? b : a);
-  return hit.id;
+  const hit = ps.find(p => e.line >= p.start && e.line <= p.end);
+  if (!near) return hit?.id ?? null;
+  return (hit || ps.reduce((a, b) => Math.abs(b.start - e.line) < Math.abs(a.start - e.line) ? b : a)).id;
 }
 
 const where = p => `${p.file.split("/").pop()}:${p.start === p.end ? p.start : p.start + "–" + p.end}`;
@@ -163,14 +177,16 @@ function renderDoc() {
     for (const p of f.passages) {
       if (p.kind === "same") { sec.append(el("div", { class: "same" }, p.segs[0][1])); continue; }
       changed.push(p);
+      // Each run of changes is a hunk, numbered as review.py's hunks() numbers it.
       const text = el("div", { class: "text" });
+      let h = null; p.hs = [];
       for (const [o, t] of p.segs) {
+        if (o === "=") { h = null; text.append(t); continue; }
+        if (!h) { h = el("span", { class: "hunk", title: "Approve, revert or comment" }); h.k = p.hs.length; p.hs.push(h); h.old = h.neu = ""; text.append(h); }
         // A paragraph break removed or added shows as a marked ¶, not as blank lines.
         const brk = /^\s*\n\s*\n\s*$/.test(t);
-        if (o === "=") text.append(t);
-        else if (o === "-") text.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : t));
-        else if (brk) text.append(el("ins", { title: "paragraph break added" }, " ¶"), t);
-        else text.append(el("ins", {}, t));
+        if (o === "-") { h.old += t; h.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : t)); }
+        else { h.neu += t; brk ? h.append(el("ins", { title: "paragraph break added" }, " ¶"), t) : h.append(el("ins", {}, t)); }
       }
       const card = el("article", { class: "card", id: "p-" + p.id },
         el("div", { class: "head" },
@@ -204,15 +220,21 @@ function renderState() {
   const threads = {};
   for (const p of changed) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
   for (const th of Object.values(threads)) th.replaceChildren();
-  for (const c of S.comments) {
-    const th = threads[home(c)];
+  for (const c of S.notes) {
+    const th = threads[home(c, c.type !== "revert")];
     if (!th) continue;
+    if (c.type === "revert") {
+      th.append(note("Reverted", { ts: c.ts, quote: c.removed.trim() ? c.removed : null,
+        text: c.restored.trim() ? "Restored: " + c.restored : "Removed." }));
+      for (const r of S.replies[c.id] || []) th.append(note("Claude", r, "reply"));
+      continue;
+    }
     th.append(note("You", c));
     const rs = S.replies[c.id] || [];
     for (const r of rs) th.append(note("Claude", r, "reply"));
     if (rs.length) {
       // After Claude's answer: accept the passage as it now reads, or ask for more.
-      const ok = S.approved.has(home(c));
+      const ok = pOk(changed.find(p => p.id === home(c)));
       th.lastChild.append(el("div", { class: "acts" },
         el("button", { "data-act": "approve", class: ok ? "approved" : "" }, ok ? "Approved" : "Approve"),
         el("button", { "data-act": "note" }, "Comment again")));
@@ -222,12 +244,13 @@ function renderState() {
   for (const q of inflight) threads[home(q)]?.append(waiting(q));
   for (const p of changed) {
     const card = document.getElementById("p-" + p.id);
-    const ok = S.approved.has(p.id);
+    const ok = pOk(p);
     card.classList.toggle("ok", ok);
     const b = $('[data-act="approve"]', card);
     b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
+    for (const h of card.querySelectorAll(".hunk")) h.classList.toggle("ok", hunkOk(p, h));
   }
-  const done = changed.filter(p => S.approved.has(p.id)).length;
+  const done = changed.filter(pOk).length;
   $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
   $("#spent").textContent = info.has_key ? `Contextualize: $${S.spent.toFixed(2)} · API credits` : "Contextualize off: no API key";
   renderSide();
@@ -245,7 +268,7 @@ function renderSide() {
   let file = null;
   for (const [i, p] of changed.entries()) {
     if (p.file !== file) { file = p.file; side.append(el("h2", {}, file)); }
-    const state = S.open.some(c => home(c) === p.id) ? "open" : S.approved.has(p.id) ? "ok" : "";
+    const state = S.open.some(c => home(c) === p.id) ? "open" : pOk(p) ? "ok" : "";
     const a = el("a", { href: "#p-" + p.id, class: i === cur ? "cur" : "" }, el("span", { class: "dot " + state }),
       el("span", { class: "where" }, where(p)), el("span", { class: "gist" }, gist(p)));
     a.onclick = ev => { ev.preventDefault(); focusCard(i); };
@@ -350,7 +373,10 @@ function updateTool() {
 }
 // Mouse selections settle on mouseup; keyboard ones (shift+arrows) on selectionchange.
 let mouseDown = false, settle;
-document.addEventListener("mousedown", ev => { if (!tool.contains(ev.target)) mouseDown = true; });
+document.addEventListener("mousedown", ev => {
+  if (!hmenu.contains(ev.target)) hideMenu();
+  if (!tool.contains(ev.target) && !hmenu.contains(ev.target)) mouseDown = true;
+});
 document.addEventListener("mouseup", () => { mouseDown = false; setTimeout(updateTool); });
 document.addEventListener("selectionchange", () => {
   if (mouseDown) return;
@@ -372,15 +398,75 @@ tool.addEventListener("click", ev => {
   act === "comment" ? openComposer(card, quote, line) : contextualize(card, quote, line);
 });
 
+// One hunk's menu: approve it, put the old text back, or comment on it.
+const hmenu = $("#hmenu");
+let menuFor = null;
+const hkey = (file, old, neu) => file + "\0" + old + "\0" + neu;
+const hOk = (p, h) => S.hunks.has(hkey(p.file, h.old, h.neu));
+const hunkOk = (p, h) => S.approved.has(p.id) || hOk(p, h);
+// A passage is approved as a whole, or by approving each of its hunks.
+const pOk = p => !!p && (S.approved.has(p.id) || (p.hs.length > 0 && p.hs.every(h => hOk(p, h))));
+// Clear a passage's approval and its hunks', keeping the hunks in `keep` approved.
+async function unapprove(p, keep = []) {
+  const at = { passage: p.id, file: p.file, line: p.start };
+  if (S.approved.has(p.id)) {
+    for (const h of keep) if (!hOk(p, h)) await post({ ...at, type: "approve_hunk", old: h.old, new: h.neu });
+    await post({ ...at, type: "unapprove" });
+  }
+  for (const h of p.hs) if (!keep.includes(h) && hOk(p, h)) await post({ ...at, type: "unapprove_hunk", old: h.old, new: h.neu });
+}
+function hideMenu() { hmenu.hidden = true; menuFor?.classList.remove("on"); menuFor = null; }
+function openMenu(h) {
+  hideMenu();
+  menuFor = h; h.classList.add("on");
+  const p = h.closest(".card").passage, ok = hunkOk(p, h);
+  const b = $('[data-h="approve"]', hmenu);
+  b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
+  $('[data-h="revert"]', hmenu).disabled = false;
+  const rs = h.getClientRects(), r = rs[rs.length - 1];
+  hmenu.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 240)) + "px";
+  hmenu.style.top = (r.bottom + scrollY + 6) + "px";
+  hmenu.hidden = false;
+}
+async function post(e) { e = await api("/api/log", e); log.push(e); logLen++; derive(); }
+hmenu.addEventListener("mousedown", ev => ev.preventDefault());
+hmenu.addEventListener("click", async ev => {
+  const act = ev.target.dataset.h, h = menuFor;
+  if (!act || !h) return;
+  const card = h.closest(".card"), p = card.passage, at = { passage: p.id, file: p.file, line: p.start };
+  if (act === "comment") {
+    hideMenu();
+    const r = document.createRange(); r.setStart(h, 0);
+    return openComposer(card, h.neu.trim() || "deleted: " + h.old.trim(), lineOf(p, r));
+  }
+  if (act === "approve") {
+    if (!hunkOk(p, h)) await post({ ...at, type: "approve_hunk", old: h.old, new: h.neu });
+    else await unapprove(p, p.hs.filter(x => x !== h));
+    hideMenu(); return renderState();
+  }
+  if (act === "revert") {
+    ev.target.disabled = true;
+    try {
+      const e = await api("/api/revert", { passage: p.id, file: p.file, hunk: h.k });
+      log.push(e); logLen++;
+      hideMenu(); await loadDoc(true);
+    } catch (err) { hideMenu(); alertIn($(".thread", card), err); if (/changed/.test(err.message)) loadDoc(true); }
+  }
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") hideMenu(); });
+
 $("#doc").addEventListener("click", async ev => {
+  const h = ev.target.closest(".hunk");
+  if (h && getSelection().isCollapsed) return openMenu(h);
   const act = ev.target.dataset.act;
   const card = ev.target.closest(".card");
   if (!act || !card) return;
   const p = card.passage;
   if (act === "note") openComposer(card, "", p.start);
   if (act === "approve") {
-    const e = await api("/api/log", { type: S.approved.has(p.id) ? "unapprove" : "approve", passage: p.id, file: p.file, line: p.start });
-    log.push(e); logLen++; derive(); renderState();
+    if (pOk(p)) await unapprove(p);
+    else await post({ type: "approve", passage: p.id, file: p.file, line: p.start });
+    renderState();
   }
 });
 
@@ -402,7 +488,7 @@ const findCard = (id, idx) => document.getElementById("p-" + id) || (changed[idx
 // The reader is selecting text: re-rendering now would drop the selection.
 const selecting = () => {
   const sel = getSelection();
-  return mouseDown || !tool.hidden || (sel.rangeCount > 0 && !sel.isCollapsed && $("#doc").contains(sel.anchorNode));
+  return mouseDown || !tool.hidden || !hmenu.hidden || (sel.rangeCount > 0 && !sel.isCollapsed && $("#doc").contains(sel.anchorNode));
 };
 
 async function loadDoc(force = false) {

@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 KEYCHAIN_SERVICE = "anthropic-api-credits"
 MODEL = "claude-sonnet-5-5"
 CONTEXT_TOOLS = "Read,Grep,Glob,Bash(grep:*),Bash(sed:*)"
-PAGE_TYPES = {"comment", "approve", "unapprove"}
+PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk"}
 TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
 
 
@@ -146,6 +146,27 @@ def passages(path, old, new):
     return out
 
 
+def hunks(segs):
+    """Each run of changed segments as (start, end, old, new), positions in the
+    passage's new text. The page numbers hunks the same way."""
+    out, pos, cur = [], 0, None
+    for o, t in segs:
+        if o == "=":
+            cur = None
+            pos += len(t)
+            continue
+        if cur is None:
+            cur = [pos, pos, "", ""]
+            out.append(cur)
+        if o == "-":
+            cur[2] += t
+        else:
+            cur[3] += t
+            pos += len(t)
+            cur[1] = pos
+    return [tuple(h) for h in out]
+
+
 class Review:
     def __init__(self, repo, base, files):
         self.repo, self.base, self.files = repo, base, files
@@ -183,6 +204,33 @@ class Review:
         with self.lock, open(self.log_path, "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         return entry
+
+    def revert(self, body):
+        """Put one hunk's old text back into the file, if the passage still reads
+        as the page showed it."""
+        path = body["file"]
+        if path not in self.files:
+            raise LookupError("not a reviewed file")
+        p = next((p for p in passages(path, self.old_text(path), self.text(path)) if p["id"] == body["passage"]), None)
+        hs = hunks(p["segs"]) if p else []
+        k = int(body["hunk"])
+        if not p or not 0 <= k < len(hs):
+            raise LookupError("the passage changed since the page loaded")
+        start, end, old, new = hs[k]
+        text = self.text(path)
+        lines = text.split("\n")
+        base = sum(len(l) + 1 for l in lines[:p["start"] - 1])
+        shown = "".join(t for o, t in p["segs"] if o != "-")
+        if not shown:   # a removed paragraph: put it back before the line it preceded
+            text = (text[:base] + old + "\n\n" + text[base:]) if p["start"] <= len(lines) \
+                else text.rstrip("\n") + "\n\n" + old + "\n"
+        elif text[base:base + len(shown)] == shown:
+            text = text[:base + start] + old + text[base + end:]
+        else:
+            raise LookupError("the passage changed since the page loaded")
+        (self.repo / path).write_text(text)
+        return self.append({"type": "revert", "passage": p["id"], "file": path, "line": p["start"],
+                            "removed": new, "restored": old})
 
     def contextualize(self, body):
         key = api_key()
@@ -264,8 +312,13 @@ def handler(review, port):
                 if self.path == "/api/log":
                     if body.get("type") not in PAGE_TYPES:
                         return self.send(400, {"error": "bad type"})
-                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text") if k in body}
+                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "old", "new") if k in body}
                     return self.send(200, review.append(keep))
+                if self.path == "/api/revert":
+                    try:
+                        return self.send(200, review.revert(body))
+                    except LookupError as e:
+                        return self.send(409, {"error": str(e)})
                 if self.path == "/api/contextualize":
                     return self.send(200, review.contextualize(body))
                 self.send(404, {"error": "not found"})

@@ -54,6 +54,12 @@ main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
 @keyframes fresh { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
 .card .head { display: flex; gap: 8px; align-items: center; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--line); }
 .card .head .where { font: 12px var(--mono); color: var(--muted); flex: 1; }
+.card .head .gist { display: none; color: var(--muted); font-size: 13px; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.done .head .where { flex: none; }
+.card.done .head .where, .card.done .head .gist { display: block; cursor: pointer; }
+.card.done:not(.open) .text, .card.done:not(.open) .thread, .card.done:not(.open) .composer { display: none; }
+.card.done:not(.open) .head { border-bottom: 0; }
 .text { font: 15.5px/1.62 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; }
 ins { text-decoration: none; background: var(--ins-bg); border-bottom: 2px solid var(--ins); }
 del { background: var(--del-bg); color: var(--del); text-decoration: line-through; }
@@ -195,6 +201,7 @@ function renderDoc() {
       const card = el("article", { class: "card", id: "p-" + p.id },
         el("div", { class: "head" },
           el("span", { class: "where" }, `${p.file}:${p.start === p.end ? p.start : p.start + "–" + p.end}`),
+          el("span", { class: "gist" }, p.segs.filter(([o]) => o !== "-").map(([, t]) => t).join("").replace(/\s+/g, " ").slice(0, 160)),
           el("button", { "data-act": "note" }, "Comment"),
           el("button", { "data-act": "approve" }, "Approve")),
         text, el("div", { class: "thread" }));
@@ -248,6 +255,7 @@ function renderState() {
     // Approving a passage commits its uncommitted edits (review.py commit()).
     b.textContent = !ok ? "Approve" : cm?.sha ? `Committed ${cm.sha}` : S.approved.has(p.id) && !cm ? "Committing…" : "Approved";
     b.classList.toggle("approved", ok);
+    card.classList.toggle("done", !!(ok && cm?.sha));   // committed: collapsed to its head
     if (cm?.error && S.approved.has(p.id)) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
     for (const h of card.querySelectorAll(".hunk")) h.classList.toggle("ok", hunkOk(p, h));
   }
@@ -471,6 +479,8 @@ document.addEventListener("keydown", ev => {
 $("#doc").addEventListener("click", async ev => {
   const h = ev.target.closest(".hunk");
   if (h && getSelection().isCollapsed) return openMenu(h);
+  const done = ev.target.closest(".card.done");
+  if (done && ev.target.closest(".where, .gist")) return done.classList.toggle("open");
   const act = ev.target.dataset.act;
   const card = ev.target.closest(".card");
   if (!act || !card) return;

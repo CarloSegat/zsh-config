@@ -325,29 +325,50 @@ const tool = $("#tool");
 function selectionInCard() {
   const sel = getSelection();
   if (!sel.rangeCount || sel.isCollapsed) return null;
-  const range = sel.getRangeAt(0);
-  const text = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
-  const box = text.closest(".text");
+  const range = sel.getRangeAt(0).cloneRange();
+  const boxOf = n => (n.nodeType === 1 ? n : n.parentElement)?.closest(".text");
+  const box = boxOf(range.startContainer) || boxOf(range.endContainer);
   if (!box) return null;
+  // A selection dragged past the passage's edge, or a triple-click, is cut back
+  // to the passage it starts in, and the highlight shows what will be quoted.
+  const cut = !box.contains(range.startContainer) || !box.contains(range.endContainer);
+  if (!box.contains(range.startContainer)) range.setStart(box, 0);
+  if (!box.contains(range.endContainer)) range.setEnd(box, box.childNodes.length);
+  if (cut) { sel.removeAllRanges(); sel.addRange(range); }
   const frag = range.cloneContents(); frag.querySelectorAll("del").forEach(d => d.remove());
   const quote = frag.textContent.trim();
-  return quote ? { card: box.closest(".card"), quote, line: lineOf(box.closest(".card").passage, range), range } : null;
+  const card = box.closest(".card");
+  return quote ? { card, quote, line: lineOf(card.passage, range), range } : null;
 }
-document.addEventListener("mouseup", () => setTimeout(() => {
+function updateTool() {
   pending = selectionInCard();
   if (!pending) { tool.hidden = true; return; }
   const r = pending.range.getBoundingClientRect();
   tool.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 220)) + "px";
   tool.style.top = (r.bottom + scrollY + 6) + "px";
   tool.hidden = false;
-}));
+}
+// Mouse selections settle on mouseup; keyboard ones (shift+arrows) on selectionchange.
+let mouseDown = false, settle;
+document.addEventListener("mousedown", ev => { if (!tool.contains(ev.target)) mouseDown = true; });
+document.addEventListener("mouseup", () => { mouseDown = false; setTimeout(updateTool); });
+document.addEventListener("selectionchange", () => {
+  if (mouseDown) return;
+  clearTimeout(settle); settle = setTimeout(updateTool, 150);
+});
 tool.addEventListener("mousedown", ev => ev.preventDefault());
 tool.addEventListener("click", ev => {
   const act = ev.target.dataset.act;
   if (!act || !pending) return;
   tool.hidden = true;
-  const { card, quote, line } = pending; pending = null;
+  const { quote, line } = pending;
+  // The card may have been re-rendered since the selection: use the one there now.
+  const p = pending.card.passage;
+  const card = pending.card.isConnected ? pending.card
+    : document.getElementById("p-" + home({ passage: p.id, file: p.file, line }));
+  pending = null;
   getSelection().removeAllRanges();
+  if (!card) return;
   act === "comment" ? openComposer(card, quote, line) : contextualize(card, quote, line);
 });
 
@@ -378,7 +399,15 @@ $("#only").onchange = ev => $("#doc").classList.toggle("changes-only", ev.target
 // changed, by its position among the changed passages.
 const findCard = (id, idx) => document.getElementById("p-" + id) || (changed[idx] && document.getElementById("p-" + changed[idx].id));
 
-async function loadDoc() {
+// The reader is selecting text: re-rendering now would drop the selection.
+const selecting = () => {
+  const sel = getSelection();
+  return mouseDown || !tool.hidden || (sel.rangeCount > 0 && !sel.isCollapsed && $("#doc").contains(sel.anchorNode));
+};
+
+async function loadDoc(force = false) {
+  const [d, l, s] = await Promise.all([api("/api/doc"), api("/api/log"), api("/api/state")]);
+  if (!force && selecting()) return;   // try again at the next poll
   // Keep what the reader is doing across the re-render: the card at the top of
   // the screen and its offset, the focused card, and any comment being written.
   const cards = [...document.querySelectorAll(".card")];
@@ -392,8 +421,7 @@ async function loadDoc() {
   });
   const before = new Set(changed.map(p => p.id));
 
-  [doc, log] = await Promise.all([api("/api/doc"), api("/api/log")]);
-  const s = await api("/api/state"); version = s.version; logLen = log.length;
+  doc = d; log = l; version = s.version; logLen = log.length;
   derive(); renderDoc();
 
   if (before.size) for (const p of changed) if (!before.has(p.id)) document.getElementById("p-" + p.id).classList.add("fresh");
@@ -414,8 +442,7 @@ async function poll() {
   loading = true;
   try {
     const s = await api("/api/state");
-    // Wait while text is selected, so the selection toolbar keeps its target.
-    if (s.version !== version && tool.hidden) await loadDoc();
+    if (s.version !== version && !selecting()) await loadDoc();
     else if (s.log !== logLen) { log = await api("/api/log"); logLen = log.length; derive(); renderState(); }
   } catch (_) { /* server restarting: try again next tick */ }
   loading = false;
@@ -427,7 +454,7 @@ async function poll() {
   const b = $("#ctxbtn");
   if (!info.has_key) { b.disabled = true; b.title = `No API key: add one to the Keychain service "${info.service}"`; }
   else b.title = `Runs /contextualize on ${info.model} with your API credits`;
-  await loadDoc();
+  await loadDoc(true);
   setInterval(poll, 2000);
 })();
 </script>

@@ -158,15 +158,15 @@ class PageTest(unittest.TestCase):
         self.srv = subprocess.Popen([sys.executable, str(tool / "review.py"), "serve", "--base", "base", "--port", str(free_port()),
                                      *(["--check", check] if check else []), "doc.tex"],
                                     cwd=self.repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        self.addCleanup(self.stop)
+        self.addCleanup(self.stop, self.srv)
         self.url = self.srv.stdout.readline().split()[0]
         self.p = Page(self.url)
         self.addCleanup(self.p.close)
         return self.p
 
-    def stop(self):
-        self.srv.terminate()
-        self.srv.wait(10)
+    def stop(self, srv):
+        srv.terminate()
+        srv.wait(10)
 
     def git(self, *a):
         return subprocess.run(["git", *a], cwd=self.repo, capture_output=True, text=True, check=True).stdout
@@ -395,7 +395,7 @@ class PageTest(unittest.TestCase):
 
     def test_failed_requests_show_on_the_card(self):
         p = self.start()
-        self.stop()
+        self.stop(self.srv)
         for act in ("approve", "split"):
             p.js("document.querySelectorAll('.err').forEach(e => e.remove())")
             self.click(0, act)

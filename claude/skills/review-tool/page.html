@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Review Changes</title>
+<style>
+/* Layout: sticky header; sidebar index of changed passages beside one reading column. */
+:root {
+  --bg: #f7f7f4; --panel: #ffffff; --fg: #1d1f21; --muted: #6b6f73; --line: #dcdcd6;
+  --accent: #2f5d8a; --ins: #1f7a4d; --ins-bg: #dff2e6; --del: #b03a2e; --del-bg: #f8e1de;
+  --ok: #1f7a4d; --warn: #b7791f; --quote: #eef1f5;
+  --read: "Iowan Old Style", "Charter", "Georgia", serif;
+  --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #16181b; --panel: #1e2125; --fg: #e4e4e0; --muted: #9a9ea3; --line: #33373c;
+  --accent: #7fb0e0; --ins: #6fd39d; --ins-bg: #1d3a2b; --del: #f08a7e; --del-bg: #43231f;
+  --ok: #6fd39d; --warn: #e3b25a; --quote: #262b31; color-scheme: dark;
+} }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--ui); }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; padding: 10px 16px; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+header .meta { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+header .grow { flex: 1; }
+header label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+#banner { background: var(--warn); color: #000; border-radius: 6px; padding: 4px 10px; }
+#banner button { margin-left: 8px; }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+nav { position: sticky; top: 49px; height: calc(100vh - 49px); overflow: auto; border-right: 1px solid var(--line);
+  padding: 12px 12px 40px; }
+nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+nav a { display: flex; gap: 8px; align-items: baseline; padding: 3px 6px; border-radius: 4px; color: var(--fg);
+  text-decoration: none; font-size: 12.5px; }
+nav a:hover, nav a.cur { background: var(--quote); }
+nav a .where { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+nav a .gist { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; border: 1.5px solid var(--muted); align-self: center; }
+.dot.ok { background: var(--ok); border-color: var(--ok); }
+.dot.open { background: var(--warn); border-color: var(--warn); }
+main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
+.file { max-width: 860px; margin: 0 auto 32px; }
+.file > h2 { font: 600 13px var(--mono); color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.same { font: 15px/1.6 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted);
+  margin: 10px 0; padding: 0 14px; }
+.changes-only .same { display: none; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin: 14px 0; scroll-margin-top: 64px; }
+.card.cur { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card.ok { border-color: var(--ok); }
+.card .head { display: flex; gap: 8px; align-items: center; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--line); }
+.card .head .where { font: 12px var(--mono); color: var(--muted); flex: 1; }
+.text { font: 15.5px/1.62 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; }
+ins { text-decoration: none; background: var(--ins-bg); border-bottom: 2px solid var(--ins); }
+del { background: var(--del-bg); color: var(--del); text-decoration: line-through; }
+button { font: 12.5px var(--ui); border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  border-radius: 5px; padding: 3px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+button.approved { background: var(--ok); border-color: var(--ok); color: var(--bg); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.thread:empty { display: none; }
+.thread { border-top: 1px solid var(--line); padding: 8px 14px 12px; display: grid; gap: 8px; }
+.note { font-size: 13.5px; }
+.note .who { font-weight: 600; margin-right: 6px; }
+.note .who.claude { color: var(--accent); }
+.note .meta { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
+.note blockquote { margin: 4px 0; padding: 4px 8px; background: var(--quote); border-radius: 4px;
+  font: 13.5px/1.5 var(--read); white-space: pre-wrap; }
+.note .body { white-space: pre-wrap; }
+.note.reply { margin-left: 18px; }
+.composer { border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px; }
+.composer textarea { width: 100%; min-height: 70px; font: 14px/1.45 var(--ui); padding: 6px 8px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
+.composer .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.composer .row .hint { color: var(--muted); font-size: 11.5px; margin-right: auto; }
+#tool { position: absolute; z-index: 10; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+.empty { color: var(--muted); font-size: 12.5px; padding: 3px 6px; }
+.keys { color: var(--muted); font-size: 11.5px; margin-top: 18px; line-height: 1.7; }
+kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  nav { position: static; height: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Review</h1>
+  <span class="meta" id="meta"></span>
+  <span id="progress"></span>
+  <span class="meta" id="spent"></span>
+  <span class="grow"></span>
+  <span id="banner" hidden>Text changed on disk <button id="reload">Reload</button></span>
+  <label><input type="checkbox" id="only" checked> Changes only</label>
+</header>
+<div class="layout">
+  <nav id="side"></nav>
+  <main id="doc" class="changes-only"></main>
+</div>
+<div id="tool" hidden>
+  <button data-act="comment">Comment</button>
+  <button data-act="context" id="ctxbtn">Contextualize</button>
+</div>
+<script>
+const H = { "Content-Type": "application/json", "X-Review": "1" };
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: H, body: JSON.stringify(body) } : {});
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || r.status);
+  return d;
+}
+const $ = (s, el = document) => el.querySelector(s);
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? e.className = v : e.setAttribute(k, v);
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+
+let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null;
+let changed = [];   // changed passages in reading order
+let S = {};         // state derived from the log
+
+function derive() {
+  S = { approved: new Set(), comments: {}, replies: {}, contexts: {}, spent: 0, open: [] };
+  for (const e of log) {
+    if (e.type === "approve") S.approved.add(e.passage);
+    if (e.type === "unapprove") S.approved.delete(e.passage);
+    if (e.type === "comment") (S.comments[e.passage] ||= []).push(e);
+    if (e.type === "reply") (S.replies[e.to] ||= []).push(e);
+    if (e.type === "context") { (S.contexts[e.passage] ||= []).push(e); S.spent += e.cost || 0; }
+  }
+  S.open = log.filter(e => e.type === "comment" && !S.replies[e.id]);
+}
+
+const where = p => `${p.file.split("/").pop()}:${p.start === p.end ? p.start : p.start + "–" + p.end}`;
+const gist = p => p.segs.filter(s => s[0] !== "-").map(s => s[1]).join("").replace(/\s+/g, " ").trim().slice(0, 80);
+
+function renderDoc() {
+  const main = $("#doc"); main.replaceChildren();
+  changed = [];
+  for (const f of doc.files) {
+    const sec = el("section", { class: "file" }, el("h2", {}, f.path));
+    for (const p of f.passages) {
+      if (p.kind === "same") { sec.append(el("div", { class: "same" }, p.segs[0][1])); continue; }
+      changed.push(p);
+      const text = el("div", { class: "text" });
+      for (const [o, t] of p.segs) {
+        // A paragraph break removed or added shows as a marked ¶, not as blank lines.
+        const brk = /^\s*\n\s*\n\s*$/.test(t);
+        if (o === "=") text.append(t);
+        else if (o === "-") text.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : t));
+        else if (brk) text.append(el("ins", { title: "paragraph break added" }, " ¶"), t);
+        else text.append(el("ins", {}, t));
+      }
+      const card = el("article", { class: "card", id: "p-" + p.id },
+        el("div", { class: "head" },
+          el("span", { class: "where" }, `${p.file}:${p.start === p.end ? p.start : p.start + "–" + p.end}`),
+          el("button", { "data-act": "note" }, "Comment"),
+          el("button", { "data-act": "approve" }, "Approve")),
+        text, el("div", { class: "thread" }));
+      card.passage = p;
+      sec.append(card);
+    }
+    if (sec.children.length > 1) main.append(sec);
+  }
+  renderState();
+}
+
+function note(who, e, cls = "") {
+  const n = el("div", { class: "note " + cls },
+    el("span", { class: "who" + (who === "Claude" ? " claude" : "") }, who),
+    el("span", { class: "meta" }, e.ts.slice(5, 16) + (e.cost != null ? ` · $${e.cost.toFixed(3)}` : "")));
+  if (e.quote) n.append(el("blockquote", {}, e.quote));
+  n.append(el("div", { class: "body" }, e.text));
+  return n;
+}
+
+function renderState() {
+  for (const p of changed) {
+    const card = document.getElementById("p-" + p.id);
+    const ok = S.approved.has(p.id);
+    card.classList.toggle("ok", ok);
+    const b = $('[data-act="approve"]', card);
+    b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
+    const th = $(".thread", card); th.replaceChildren();
+    for (const c of S.comments[p.id] || []) {
+      th.append(note("You", c));
+      for (const r of S.replies[c.id] || []) th.append(note("Claude", r, "reply"));
+    }
+    for (const c of S.contexts[p.id] || []) th.append(note("Context", c));
+  }
+  const done = changed.filter(p => S.approved.has(p.id)).length;
+  $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
+  $("#spent").textContent = S.spent ? `Contextualize: $${S.spent.toFixed(2)}` : "";
+  renderSide();
+}
+
+function renderSide() {
+  const side = $("#side"); side.replaceChildren();
+  side.append(el("h2", {}, "Open comments"));
+  if (!S.open.length) side.append(el("div", { class: "empty" }, "None"));
+  for (const c of S.open) {
+    const a = el("a", { href: "#p-" + c.passage }, el("span", { class: "dot open" }),
+      el("span", { class: "where" }, `${c.file.split("/").pop()}:${c.line}`), el("span", { class: "gist" }, c.text));
+    side.append(a);
+  }
+  let file = null;
+  for (const [i, p] of changed.entries()) {
+    if (p.file !== file) { file = p.file; side.append(el("h2", {}, file)); }
+    const state = (S.comments[p.id] || []).some(c => !S.replies[c.id]) ? "open" : S.approved.has(p.id) ? "ok" : "";
+    const a = el("a", { href: "#p-" + p.id, class: i === cur ? "cur" : "" }, el("span", { class: "dot " + state }),
+      el("span", { class: "where" }, where(p)), el("span", { class: "gist" }, gist(p)));
+    a.onclick = ev => { ev.preventDefault(); focusCard(i); };
+    side.append(a);
+  }
+  side.append(el("div", { class: "keys" },
+    el("kbd", {}, "j"), " / ", el("kbd", {}, "k"), " next / previous change · ",
+    el("kbd", {}, "a"), " approve · ", el("kbd", {}, "c"), " comment on the passage · select text to comment or contextualize"));
+}
+
+function focusCard(i) {
+  if (i < 0 || i >= changed.length) return;
+  document.querySelector(".card.cur")?.classList.remove("cur");
+  cur = i;
+  const card = document.getElementById("p-" + changed[i].id);
+  card.classList.add("cur");
+  card.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  renderSide();
+}
+
+function lineOf(p, range) {
+  // Line of the selection start within the passage's new text.
+  const pre = document.createRange();
+  pre.selectNodeContents($(".text", document.getElementById("p-" + p.id)));
+  pre.setEnd(range.startContainer, range.startOffset);
+  const frag = pre.cloneContents(); frag.querySelectorAll("del").forEach(d => d.remove());
+  return p.start + (frag.textContent.match(/\n/g) || []).length;
+}
+
+function openComposer(card, quote, line) {
+  $(".composer", card)?.remove();
+  const ta = el("textarea", { placeholder: "Prompt for Claude: what should change, or what to check" });
+  const save = el("button", { class: "primary" }, "Save");
+  const cancel = el("button", {}, "Cancel");
+  const box = el("div", { class: "composer" }, quote ? el("blockquote", {}, quote) : null, ta,
+    el("div", { class: "row" }, el("span", { class: "hint" }, "⌘/Ctrl+Enter to save · Esc to cancel"), cancel, save));
+  $(".text", card).after(box);
+  ta.focus();
+  const p = card.passage;
+  const submit = async () => {
+    if (!ta.value.trim()) return;
+    save.disabled = true;
+    try {
+      const e = await api("/api/log", { type: "comment", passage: p.id, file: p.file, line, quote, text: ta.value.trim() });
+      log.push(e); logLen++; derive(); renderState(); box.remove();
+    } catch (err) { save.disabled = false; alertIn(box, err); }
+  };
+  save.onclick = submit; cancel.onclick = () => box.remove();
+  ta.onkeydown = ev => {
+    if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) submit();
+    if (ev.key === "Escape") box.remove();
+  };
+}
+
+function alertIn(box, err) {
+  box.append(el("div", { class: "note" }, el("span", { class: "who" }, "Error"), String(err.message || err)));
+}
+
+async function contextualize(card, quote, line) {
+  const p = card.passage;
+  const wait = el("div", { class: "note" }, el("span", { class: "who claude" }, "Context"),
+    el("span", { class: "meta" }, `${info.model} is reading the repo…`), el("blockquote", {}, quote));
+  $(".thread", card).append(wait);
+  try {
+    const e = await api("/api/contextualize", { passage: p.id, file: p.file, line, quote });
+    log.push(e); logLen++; derive(); renderState();
+  } catch (err) { wait.remove(); alertIn($(".thread", card), err); }
+}
+
+// Selection toolbar: appears for a selection inside one passage's text.
+const tool = $("#tool");
+function selectionInCard() {
+  const sel = getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  const text = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+  const box = text.closest(".text");
+  if (!box) return null;
+  const frag = range.cloneContents(); frag.querySelectorAll("del").forEach(d => d.remove());
+  const quote = frag.textContent.trim();
+  return quote ? { card: box.closest(".card"), quote, line: lineOf(box.closest(".card").passage, range), range } : null;
+}
+document.addEventListener("mouseup", () => setTimeout(() => {
+  pending = selectionInCard();
+  if (!pending) { tool.hidden = true; return; }
+  const r = pending.range.getBoundingClientRect();
+  tool.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 220)) + "px";
+  tool.style.top = (r.bottom + scrollY + 6) + "px";
+  tool.hidden = false;
+}));
+tool.addEventListener("mousedown", ev => ev.preventDefault());
+tool.addEventListener("click", ev => {
+  const act = ev.target.dataset.act;
+  if (!act || !pending) return;
+  tool.hidden = true;
+  const { card, quote, line } = pending; pending = null;
+  getSelection().removeAllRanges();
+  act === "comment" ? openComposer(card, quote, line) : contextualize(card, quote, line);
+});
+
+$("#doc").addEventListener("click", async ev => {
+  const act = ev.target.dataset.act;
+  const card = ev.target.closest(".card");
+  if (!act || !card) return;
+  const p = card.passage;
+  if (act === "note") openComposer(card, "", p.start);
+  if (act === "approve") {
+    const e = await api("/api/log", { type: S.approved.has(p.id) ? "unapprove" : "approve", passage: p.id, file: p.file, line: p.start });
+    log.push(e); logLen++; derive(); renderState();
+  }
+});
+
+document.addEventListener("keydown", ev => {
+  if (ev.target.closest("textarea, input") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (ev.key === "j") focusCard(cur + 1);
+  if (ev.key === "k") focusCard(Math.max(0, cur - 1));
+  const card = cur >= 0 && document.getElementById("p-" + changed[cur]?.id);
+  if (ev.key === "a" && card) $('[data-act="approve"]', card).click();
+  if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", changed[cur].start); }
+});
+
+$("#only").onchange = ev => $("#doc").classList.toggle("changes-only", ev.target.checked);
+
+async function loadDoc() {
+  const keep = cur >= 0 ? changed[cur]?.id : null;
+  [doc, log] = await Promise.all([api("/api/doc"), api("/api/log")]);
+  const s = await api("/api/state"); version = s.version; logLen = log.length;
+  derive(); renderDoc();
+  $("#banner").hidden = true;
+  if (keep) { const i = changed.findIndex(p => p.id === keep); if (i >= 0) focusCard(i); }
+}
+$("#reload").onclick = loadDoc;
+
+async function poll() {
+  try {
+    const s = await api("/api/state");
+    if (s.log !== logLen) { log = await api("/api/log"); logLen = log.length; derive(); renderState(); }
+    if (s.version !== version) $("#banner").hidden = false;
+  } catch (_) { /* server restarting: try again next tick */ }
+}
+
+(async () => {
+  info = await api("/api/info");
+  $("#meta").textContent = `${info.repo.split("/").pop()} vs ${info.base}`;
+  const b = $("#ctxbtn");
+  if (!info.has_key) { b.disabled = true; b.title = `No API key: add one to the Keychain service "${info.service}"`; }
+  else b.title = `Runs /contextualize on ${info.model} with your API credits`;
+  await loadDoc();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>

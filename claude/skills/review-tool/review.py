@@ -5,7 +5,7 @@
     review.py reply --repo DIR ID TEXT
     review.py open --repo DIR
 """
-import argparse, bisect, difflib, functools, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
+import argparse, bisect, copy, difflib, functools, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -38,24 +38,23 @@ def git(repo, *args):
 
 
 def blocks(text):
-    """Paragraphs as (first line, last line, text); a blank line separates them."""
-    out, cur, start = [], [], 0
-    for n, line in enumerate(text.split("\n"), 1):
-        if line.strip():
-            start = start if cur else n
-            cur.append(line)
-        elif cur:
-            out.append((start, n - 1, "\n".join(cur)))
-            cur = []
-    if cur:
-        out.append((start, start + len(cur) - 1, "\n".join(cur)))
-    return out
+    """Paragraphs as (start, end) offsets: runs of lines that are not blank."""
+    return [m.span() for m in re.finditer(r"(?m)^[^\n]*\S[^\n]*(?:\n[^\n]*\S[^\n]*)*", text)]
+
+
+def new_of(segs):
+    return "".join(s[1] for s in segs if s[0] != "-")
+
+
+def old_of(segs):
+    return "".join(s[1] for s in segs if s[0] != "+")
 
 
 def word_diff(a, b):
     """Segments [op, text], op in = - +. A short unchanged stretch between two
     changes is folded into them, so a reworded clause reads as 1 deletion and
-    1 insertion instead of alternating fragments."""
+    1 insertion instead of alternating fragments; nothing folds across a
+    paragraph break, kept or changed."""
     ta, tb = TOKEN.findall(a), TOKEN.findall(b)
     raw = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ta, tb, autojunk=False).get_opcodes():
@@ -67,12 +66,13 @@ def word_diff(a, b):
             raw.append(("+", "".join(tb[j1:j2])))
 
     def short(t):
-        return len(t.strip()) <= 3 and not re.search(r"\S\s+\S", t)
+        return len(t.strip()) <= 3 and not re.search(r"\S\s+\S|\n\s*\n", t)
 
     out, run, pending = [], [], ""
 
     def flush():
-        if any(o == "-" for o, _ in run) and any(o == "+" for o, _ in run):
+        if any(o == "-" for o, _ in run) and any(o == "+" for o, _ in run) and \
+                not any(re.search(r"\n\s*\n", t) for _, t in run):
             out.append(["-", "".join(t for o, t in run if o != "+")])
             out.append(["+", "".join(t for o, t in run if o != "-")])
         else:
@@ -106,59 +106,166 @@ def word_diff(a, b):
     return merged
 
 
+def own(segs, pars):
+    """Segments [op, text] as pieces [op, text, k]: k indexes pars, the
+    paragraphs ((start, end) in the text without the "-" side) a piece goes
+    with, None for an unchanged blank line between two. A paragraph takes its
+    text and the removals at its place (one at its first character opens it).
+    An added paragraph takes the added blank lines that keep it apart, before
+    it or else after it. Other added blank lines go with the paragraph before,
+    unless only the paragraph after keeps words apart that committing either
+    alone would join, or the one before is added."""
+    starts, out, pos = [s for s, _ in pars], [], 0
+    for n, (o, t) in enumerate(segs):
+        if o == "-":
+            out.append([o, t, max(bisect.bisect_right(starts, pos) - 1, 0), n, False])
+            continue
+        i = 0
+        while i < len(t):
+            k = bisect.bisect_right(starts, pos + i) - 1
+            gap = k < 0 or pos + i >= pars[k][1]
+            end = (pars[k + 1][0] if k + 1 < len(pars) else pos + len(t)) if gap else pars[k][1]
+            out.append([o, t[i:end - pos], k, n, gap])
+            i = end - pos
+        pos += len(t)
+    pure = [True] * len(pars)
+    for o, _, k, _, gap in out:
+        if not gap and o != "+":
+            pure[k] = False
+    took = {}
+    for x, (o, _, k, n, gap) in enumerate(out):
+        if o == "+" and not gap and pure[k]:
+            y = next((y for y in (x - 1, x + 1) if 0 <= y < len(out) and out[y][3] == n and out[y][4] and y not in took), None)
+            if y is not None:
+                took[y] = k
+    def side(x, k):
+        if k < 0 or k + 1 == len(pars):
+            return max(k, 0)
+        if pure[k] or pure[k + 1]:
+            return k + 1 if pure[k] and not pure[k + 1] else k
+        new = lambda ps: next(((o, t) for o, t, *_ in ps if o != "-" and t), ("=", " "))
+        old = lambda ps: next((t for o, t, *_ in ps if o != "+" and t), " ")
+        (oa, ta), (ob, tb) = new(reversed(out[:x])), new(out[x + 1:])
+        joins_after = ob == "+" and not tb[0].isspace() and not old(reversed(out[:x]))[-1].isspace()
+        joins_before = oa == "+" and not ta[-1].isspace() and not old(out[x + 1:])[0].isspace()
+        return k + 1 if joins_after and not joins_before else k
+    res = [[o, t, k if not gap else None if o == "=" else took.get(x, side(x, k))]
+           for x, (o, t, k, _, gap) in enumerate(out)]
+    owned = [x for x, p in enumerate(res) if p[2] is not None]
+    for a, b in zip(owned, owned[1:]):   # a blank line inside a paragraph's changes is the paragraph's
+        if res[a][2] == res[b][2]:
+            for x in range(a + 1, b):
+                res[x][2] = res[a][2]
+    return [p for p in res if p[1]]
+
+
+def shared_breaks(old, new, ob, nb):
+    """The paragraph breaks between old paragraphs ob and new ones nb that both
+    keep, as (i, j): the break before ob[i] is the one before nb[j]. As many
+    pair, in order, as can; one whose paragraph before ends, or after starts,
+    the same way in both counts more."""
+    def ends(text, bs):
+        out = []
+        for a, b in bs:
+            t = [x for x in TOKEN.findall(text[a:b]) if not x.isspace()]
+            out.append((t[:3], t[-3:]))
+        return out
+    eo, en = ends(old, ob), ends(new, nb)
+    w = lambda i, j: 1 + (eo[i - 1][1] == en[j - 1][1]) + (eo[i][0] == en[j][0])
+    best = [[0] * len(en) for _ in eo]
+    for i in range(1, len(eo)):
+        for j in range(1, len(en)):
+            best[i][j] = max(best[i - 1][j], best[i][j - 1], best[i - 1][j - 1] + w(i, j))
+    out, i, j = [], len(eo) - 1, len(en) - 1
+    while i > 0 and j > 0:
+        if best[i][j] == best[i - 1][j - 1] + w(i, j):
+            out.append((i, j))
+            i, j = i - 1, j - 1
+        elif best[i][j] == best[i - 1][j]:
+            i -= 1
+        else:
+            j -= 1
+    return out[::-1]
+
+
 def passages(path, old, new):
+    """The diff of old to new: a passage per paragraph of new, and per paragraph
+    of old removed between kept ones. A passage's segments cover new from "at"
+    and old from "old_at", blank lines it adds or removes included, so each
+    passage applied alone keeps paragraphs apart and all of them give new.
+    Breaks both texts keep stay put, so text moved across one shows as removed
+    on one side and added on the other. "key" places it in any diff to new:
+    its paragraph of new ("par") and last line, or for a removed paragraph the
+    paragraph after it, its text and which of equal ones it is."""
     ob, nb = blocks(old), blocks(new)
+    breaks = [m.start() for m in re.finditer("\n", new)]
     out, seen = [], {}
 
-    def add(kind, start, end, segs, a, b):
+    def add(segs, at, old_at, par):
+        a, b = old_of(segs), new_of(segs)
         pid = hashlib.sha1(f"{path}\0{a}\0{b}".encode()).hexdigest()[:12]
         seen[pid] = seen.get(pid, 0) + 1
         if seen[pid] > 1:
             pid += f"-{seen[pid]}"
-        out.append({"id": pid, "file": path, "start": start, "end": end, "kind": kind, "segs": segs})
+        start = bisect.bisect_left(breaks, at) + 1
+        out.append({"id": pid, "file": path, "start": start, "end": start + b.rstrip().count("\n"),
+                    "kind": "changed" if any(o != "=" for o, _ in segs) else "same", "segs": segs,
+                    "at": at, "old_at": old_at, "par": par})
 
-    def line_at(j):
-        return nb[j][0] if j < len(nb) else (nb[-1][1] + 1 if nb else 1)
-
-    sm = difflib.SequenceMatcher(None, [x[2] for x in ob], [x[2] for x in nb], autojunk=False)
+    sm = difflib.SequenceMatcher(None, [old[a:b] for a, b in ob], [new[a:b] for a, b in nb], autojunk=False)
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == "equal":
-            for s, e, t in nb[j1:j2]:
-                add("same", s, e, [["=", t]], t, t)
-        elif op == "insert":
-            for s, e, t in nb[j1:j2]:
-                add("changed", s, e, [["+", t]], "", t)
-        elif op == "delete":
-            for _, _, t in ob[i1:i2]:
-                add("changed", line_at(j1), line_at(j1), [["-", t]], t, "")
-        else:
-            # Diff the edited run as a whole, then cut it at the new paragraph
-            # breaks: each new paragraph is a passage, a merge or split included.
-            # Deleted text stays with the paragraph it follows.
-            b = "\n\n".join(x[2] for x in nb[j1:j2])
-            owner = []
-            for k, (_, _, t) in enumerate(nb[j1:j2]):
-                owner += [k] * len(t) + ([-1, -1] if k < j2 - j1 - 1 else [])
-            parts = [[] for _ in range(j2 - j1)]
-            pos = k = 0
-            for o, t in word_diff("\n\n".join(x[2] for x in ob[i1:i2]), b):
-                if o == "-":
-                    parts[k].append([o, t])
-                    continue
-                for i, ch in enumerate(t):
-                    w = owner[pos + i]
-                    if w < 0:
-                        continue
-                    k = w
-                    if parts[k] and parts[k][-1][0] == o:
-                        parts[k][-1][1] += ch
+            for (a, _), (c, d), j in zip(ob[i1:i2], nb[j1:j2], range(j1, j2)):
+                add([["=", new[c:d]]], c, a, j)
+            continue
+        # The edited run, with the blank lines around it, in groups between the breaks both keep.
+        cut = [(i1, j1)] + [(i1 + i, j1 + j) for i, j in shared_breaks(old, new, ob[i1:i2], nb[j1:j2])] + [(i2, j2)]
+        for (ia, ja), (iz, jz) in zip(cut, cut[1:]):
+            oa = ob[ia][0] if ia > i1 else ob[i1 - 1][1] if i1 else 0
+            na = nb[ja][0] if ja > j1 else nb[j1 - 1][1] if j1 else 0
+            a = old[oa:ob[iz][0] if iz < len(ob) else len(old)]
+            b = new[na:nb[jz][0] if jz < len(nb) else len(new)]
+            if ia < iz and ja < jz:   # the blank lines around the group change only as a whole
+                (a1, a2), (b1, b2) = (ob[ia][0] - oa, ob[iz - 1][1] - oa), (nb[ja][0] - na, nb[jz - 1][1] - na)
+                edge = lambda x, y: [["=", x]] if x == y else [["-", x], ["+", y]]
+                segs = []
+                for s in edge(a[:a1], b[:b1]) + word_diff(a[a1:a2], b[b1:b2]) + edge(a[a2:], b[b2:]):
+                    if segs and segs[-1][0] == s[0]:
+                        segs[-1][1] += s[1]
+                    elif s[1]:
+                        segs.append(s)
+            else:   # whole paragraphs added or removed: the blank lines both have stay
+                kept, more, o = (a, b, "+") if ja < jz else (b, a, "-")
+                segs = ([["=", kept], [o, more[len(kept):]]] if more.startswith(kept) else
+                        [[o, more[:len(more) - len(kept)]], ["=", kept]] if more.endswith(kept) else [["-", a], ["+", b]])
+            segs = [s for s in segs if s[1]]
+            if ja < jz:
+                pieces = own(segs, [(s - na, e - na) for s, e in nb[ja:jz]])
+            else:   # removed paragraphs own their text as added ones do
+                flip = {"+": "-", "-": "+", "=": "="}
+                pieces = [[flip[o], t, k] for o, t, k in own([[flip[o], t] for o, t in segs],
+                                                            [(s - oa, e - oa) for s, e in ob[ia:iz]])]
+            po, pn, got = oa, na, {}
+            for o, t, k in pieces:
+                if k is not None:
+                    g = got.setdefault(k, ([], pn, po))[0]
+                    if g and g[-1][0] == o:
+                        g[-1][1] += t
                     else:
-                        parts[k].append([o, ch])
-                pos += len(t)
-            for (s, e, _), segs in zip(nb[j1:j2], parts):
-                a = "".join(t for o, t in segs if o != "+")
-                n = "".join(t for o, t in segs if o != "-")
-                add("changed" if any(o != "=" for o, _ in segs) else "same", s, e, segs, a, n)
+                        g.append([o, t])
+                po += 0 if o == "+" else len(t)
+                pn += 0 if o == "-" else len(t)
+            for k in sorted(got):
+                add(*got[k], ja + k if ja < jz else None)
+    slot, count = 0, {}
+    for p in out:
+        if p["par"] is None:
+            k = (slot, old_of(p["segs"]).strip())
+            count[k] = count.get(k, 0) + 1
+            p["key"] = [*k, count[k]]
+        else:
+            slot = p["par"] + 1
+            p["key"] = [p["par"], p["end"]]
     return out
 
 
@@ -263,31 +370,34 @@ def cut_at(o, t, pos, at):
 
 def split(path, ps, cuts):
     """Cut each passage at its split positions; a removed text there opens the
-    later part. A part's id and kind depend on the passage's diff from the base
-    only, so approving the part leaves them as they were."""
-    out = []
+    later part. A part's id and kind depend on its own diff from the base, so
+    approving, editing or splitting another part leaves them as they were."""
+    out, seen = [], {}
     for p in ps:
-        base = p.pop("base", [])
+        base = p.pop("base", p["segs"])
         at = cuts.get(p["id"])
         if not at:
             out.append(p)
             continue
-        changed, pos = set(), 0
-        for o, t in base:
-            if o != "=":
-                changed.update(range(bisect.bisect_right(at, pos), bisect.bisect_right(at, pos + max(len(t), 1) - 1) + 1)
-                               if o == "+" else [bisect.bisect_right(at, pos)])
-            if o != "-":
-                pos += len(t)
+        olds, news, changed, pos = [""] * (len(at) + 1), [""] * (len(at) + 1), set(), 0
+        for o, t, *_ in base:
+            for piece in cut_at(o, t, pos, at):
+                i = bisect.bisect_right(at, pos)
+                if o != "+":
+                    olds[i] += piece
+                if o != "-":
+                    news[i] += piece
+                    pos += len(piece)
+                if o != "=":
+                    changed.add(i)
         parts = [[] for _ in range(len(at) + 1)]
         pos = 0
         for seg in p["segs"]:
             parts[bisect.bisect_right(at, pos)].append(seg)
             if seg[0] != "-":
                 pos += len(seg[1])
-        line = p["start"]
+        text, old_at = "".join(news), p["old_at"]
         for i, segs in enumerate(parts):
-            new = "".join(t for o, t, *_ in segs if o != "-")
             subs, index = [], {}
             for seg in segs:
                 if len(seg) > 2:
@@ -295,12 +405,93 @@ def split(path, ps, cuts):
                         index[seg[2]] = len(subs)
                         subs.append(p["subs"][seg[2]])
                     seg[2] = index[seg[2]]
-            q = {"id": hashlib.sha1(f"{p['id']}\0{i}\0{new}".encode()).hexdigest()[:12], "file": path,
-                 "start": line, "end": line + new.rstrip("\n").count("\n"),
-                 "kind": "changed" if i in changed else "same", "segs": segs, "subs": subs}
-            line = q["end"] + 1
-            out.append(q)
+            pid = hashlib.sha1(f"{path}\0{olds[i]}\0{news[i]}\0part".encode()).hexdigest()[:12]
+            seen[pid] = seen.get(pid, 0) + 1
+            off = at[i - 1] if i else 0
+            start = p["start"] + text.count("\n", 0, off)
+            end = start + news[i].rstrip().count("\n")
+            out.append({"id": pid + (f"-{seen[pid]}" if seen[pid] > 1 else ""), "file": path, "start": start,
+                        "end": end, "kind": "changed" if i in changed else "same", "segs": segs, "subs": subs,
+                        "at": p["at"] + off, "old_at": old_at, "par": p["par"], "key": [p["par"], end]})
+            old_at += len(olds[i])
     return out
+
+
+def cut(path, ps, at, approved=()):
+    """Passages ps of a diff to new as the page shows them: cut at the positions
+    `at` of new inside them, a change made after its approval shown as the
+    change since."""
+    cuts = {}
+    for p in ps:
+        c = [x - p["at"] for x in at if p["kind"] == "changed" and p["at"] < x < p["at"] + len(new_of(p["segs"]))]
+        if c:
+            cuts[p["id"]] = c
+    return split(path, since_approved(path, ps, approved, cuts), cuts)
+
+
+def cuts(ps, splits):
+    """Where the reviewer's split entries cut the changed passages ps, as
+    positions in their new text. A split stays with its passage (the one it was
+    made on, else the one holding its line), at the line reading as its anchor
+    nearest its line, else at its line."""
+    live, out = [p for p in ps if p["kind"] == "changed"], set()
+    for e in splits:
+        p = next((p for p in live if p["id"] == e.get("passage")), None) or \
+            next((p for p in live if p["start"] < e["line"] <= p["end"]), None)
+        if not p:
+            continue
+        lines, want = new_of(p["segs"]).split("\n"), e["line"] - p["start"]
+        k = min([k for k in range(1, len(lines)) if lines[k] == e.get("text")] or [want], key=lambda k: abs(k - want))
+        if 0 < k < len(lines) and lines[k].strip() and any(l.strip() for l in lines[:k]):
+            out.add(p["at"] + sum(len(l) + 1 for l in lines[:k]))
+    return sorted(out)
+
+
+def rebase(head, base, work, ps):
+    """ps, a diff from base to work, as changes to head when head is base with
+    some of them made: those not made yet, each at its place in head. None
+    when head is something else."""
+    at, o, n = {0: []}, 0, 0   # place in head -> the passages not made before it
+    for p in ps + [None]:
+        oa, na = (p["old_at"], p["at"]) if p else (len(base), len(work))
+        at = {x + len(g): c for x, c in at.items() for g in {base[o:oa], work[n:na]} if head.startswith(g, x)}
+        if not p:
+            return at.get(len(head))
+        a, b, nxt = old_of(p["segs"]), new_of(p["segs"]), {}
+        for x, c in at.items():
+            if head.startswith(b, x):
+                nxt.setdefault(x + len(b), c)
+            if a != b and head.startswith(a, x):
+                nxt.setdefault(x + len(a), c + [{**p, "old_at": x}])
+        at, o, n = nxt, oa + len(a), na + len(b)
+
+
+def view(path, base, head, work, splits=(), approved=()):
+    """A file's passages as the page shows them (the diff from base, cut at the
+    reviewer's splits), and the changes from head that commits make: the shown
+    ones not in head yet when head is base with some shown passages made, else
+    the diff from head cut the same way. Then a change from head the base diff
+    does not show (a committed change reverted) shows as itself."""
+    ps = passages(path, base, work)
+    at = cuts(ps, splits)
+    ours = rebase(head, base, work, cut(path, copy.deepcopy(ps), at))
+    shown = cut(path, ps, at, approved)
+    if ours is not None:
+        return shown, ours
+    ours = cut(path, passages(path, head, work), at)
+    where = {tuple(q["key"]): i for i, q in enumerate(shown)}
+    extra = []
+    for u in ours:
+        i = where.get(tuple(u["key"]))
+        if u["kind"] != "changed":
+            continue
+        if i is None:
+            extra.append(u)
+        elif shown[i]["kind"] != "changed":
+            shown[i] = u
+    for u in extra:
+        shown.insert(bisect.bisect_left([q["at"] for q in shown], u["at"]), u)
+    return shown, ours
 
 
 def hunks(segs):
@@ -324,32 +515,11 @@ def hunks(segs):
     return [tuple(h) for h in out]
 
 
-def staged(head, work, start, end):
-    """HEAD's text with work's lines start..end (from 1) in place of the lines
-    they replace. A run of changed lines crossing the range gives it a share of
-    its removed lines in proportion; a removal right after the range's last
-    line is the range's when a blank line or the end of the file follows. The
-    blank lines that open or close a run go with any range taking from it."""
-    a, b = head.splitlines(keepends=True), work.splitlines(keepends=True)
-    lo, hi, out = start - 1, end, []
-    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-        if op == "equal":
-            out += a[i1:i2]
-            continue
-        at = [j1 + (i - i1) * (j2 - j1) / (i2 - i1) for i in range(i1, i2)]
-        mine = (lambda j: lo <= j < hi) if j2 > j1 else \
-            (lambda j: lo <= j < hi or (j == hi and (hi >= len(b) or not b[hi].strip())))
-        take = {j for j in range(j1, j2) if lo <= j < hi}
-        if take:   # the blank lines opening or closing the run keep paragraphs apart
-            for js in (range(j1, j2), range(j2 - 1, j1 - 1, -1)):
-                for j in js:
-                    if b[j].strip():
-                        break
-                    take.add(j)
-        out += [a[i] for i, j in zip(range(i1, i2), at) if j < lo and not mine(j)]
-        out += [b[j] for j in sorted(take)]
-        out += [a[i] for i, j in zip(range(i1, i2), at) if j >= lo and not mine(j)]
-    return "".join(out)
+def staged(old, ps):
+    """old with the changes of passages ps (of a diff from old, in order) made."""
+    for p in reversed(ps):
+        old = old[:p["old_at"]] + new_of(p["segs"]) + old[p["old_at"] + len(old_of(p["segs"])):]
+    return old
 
 
 class Review:
@@ -362,6 +532,7 @@ class Review:
         self.log_path.touch()
         self.lock = threading.Lock()
         self.track_lock = threading.Lock()
+        self.edit = threading.Lock()   # a revert's read and write of a file, a commit's look at it
         self.seen = {}   # path -> (text, hunk keys) at the last look, for track()
         self.queue = queue.Queue()   # comments and approvals, handled one at a time
         self.agent = False           # comments go to claude -p (there is an API key)
@@ -378,10 +549,9 @@ class Review:
         self.track()
         return {"files": [{"path": p, "passages": self.shown(p)} for p in self.files]}
 
-    def shown(self, path):
-        """A file's passages as the page shows them: cut where the reviewer split
-        them, a change made after approval shown as the change since."""
-        approved, anchors = set(), []
+    def view(self, path, head="HEAD"):
+        """view() of a reviewed file, and head's text."""
+        approved, splits = set(), []
         for e in self.log():
             if e.get("file") != path:
                 continue
@@ -391,21 +561,13 @@ class Review:
             elif e["type"] == "unapprove_hunk":
                 approved.discard(k)
             elif e["type"] == "split":
-                anchors.append((e["line"], e["text"]))
-        ps = passages(path, self.old_text(path), self.text(path))
-        lines = {p["id"]: "".join(t for o, t in p["segs"] if o != "-").split("\n") for p in ps if p["kind"] == "changed"}
-        cuts = {}
-        for line, anchor in anchors:
-            # A split opens at its line where that still reads the same, else at
-            # its line number in the passage that holds that number.
-            p = next((p for p in ps if p["id"] in lines and p["start"] < line <= p["end"]), None)
-            hit = next(((q, lines[q["id"]].index(anchor, 1)) for q in ([p] if p else []) + ps
-                        if q["id"] in lines and anchor in lines[q["id"]][1:]), None) or (p and (p, line - p["start"]))
-            if hit:
-                p, k = hit
-                cuts.setdefault(p["id"], set()).add(sum(len(l) + 1 for l in lines[p["id"]][:k]))
-        cuts = {pid: sorted(at) for pid, at in cuts.items()}
-        return split(path, since_approved(path, ps, approved, cuts), cuts)
+                splits.append(e)
+        r = git(self.repo, "show", f"{head}:{path}")
+        old = r.stdout if r.returncode == 0 else ""
+        return (*view(path, self.old_text(path), old, self.text(path), splits, approved), old)
+
+    def shown(self, path):
+        return self.view(path)[0]
 
     def keys(self, path, text):
         return {(h[2], h[3]) for p in passages(path, self.old_text(path), text) if p["kind"] == "changed"
@@ -453,26 +615,17 @@ class Review:
         path = body["file"]
         if path not in self.files:
             raise LookupError("not a reviewed file")
-        p = next((p for p in self.shown(path) if p["id"] == body["passage"]), None)
-        hs = hunks(p["segs"]) if p else []
-        k = int(body["hunk"])
-        if not p or not 0 <= k < len(hs):
-            raise LookupError("the passage changed since the page loaded")
-        start, end, old, new = hs[k]
-        text = self.text(path)
-        lines = text.split("\n")
-        base = sum(len(l) + 1 for l in lines[:p["start"] - 1])
-        shown = "".join(t for o, t, *_ in p["segs"] if o != "-")
-        if not shown:   # a removed paragraph: put it back before the line it preceded
-            text = (text[:base] + old + "\n\n" + text[base:]) if p["start"] <= len(lines) \
-                else text.rstrip("\n") + "\n\n" + old + "\n"
-        elif text[base:base + len(shown)] == shown:
-            text = text[:base + start] + old + text[base + end:]
-        else:
-            raise LookupError("the passage changed since the page loaded")
-        (self.repo / path).write_text(text)
-        return self.append({"type": "revert", "passage": p["id"], "file": path, "line": p["start"],
-                            "removed": new, "restored": old})
+        with self.edit:
+            p = next((p for p in self.shown(path) if p["id"] == body["passage"]), None)
+            hs = hunks(p["segs"]) if p else []
+            k = int(body["hunk"])
+            text, shown = self.text(path), new_of(p["segs"]) if p else ""
+            if not 0 <= k < len(hs) or text[p["at"]:p["at"] + len(shown)] != shown:
+                raise LookupError("the passage changed since the page loaded")
+            start, end, old, new = hs[k]
+            (self.repo / path).write_text(text[:p["at"] + start] + old + text[p["at"] + end:])
+            return self.append({"type": "revert", "passage": p["id"], "file": path, "line": p["start"],
+                                "removed": new, "restored": old})
 
     def claude(self, prompt, tools, model=MODEL):
         """Run claude -p in the repo on the Keychain API key; return its result event."""
@@ -534,13 +687,15 @@ class Review:
     def commit(self, e):
         """Commit the uncommitted edits inside an approved passage, and nothing else."""
         path, at = e["file"], {"type": "commit", "passage": e["passage"], "file": e["file"], "line": e["line"]}
-        p = next((p for p in self.shown(path) if p["id"] == e["passage"]), None)
+        with self.edit:
+            shown, ours, head = self.view(path)
+            p = next((p for p in shown if p["id"] == e["passage"]), None)
+            if p:   # the changes from HEAD in the passage's place
+                text = staged(head, [u for u in ours if u["kind"] == "changed" and u["key"] == p["key"]])
         if not p:
             return self.append({**at, "error": "the passage changed after it was approved"})
         if git(self.repo, "diff", "--cached", "--quiet").returncode:
             return self.append({**at, "error": "other changes are staged; commit or unstage them first"})
-        head = git(self.repo, "show", f"HEAD:{path}").stdout
-        text = staged(head, self.text(path), p["start"], p["end"])
         if text == head:
             return self.append({**at, "skipped": "nothing uncommitted in the passage"})
         if self.check:

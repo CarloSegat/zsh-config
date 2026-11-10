@@ -403,6 +403,7 @@ def unique_edit(rng):
                     p[min(j, len(p) - 1)] = u()
         wp.append(p)
         i += 1
+    wp = wp or [[u()]]
     return "\n\n".join("\n".join(p) for p in hp) + "\n", "\n\n".join("\n".join(p) for p in wp) + "\n"
 
 

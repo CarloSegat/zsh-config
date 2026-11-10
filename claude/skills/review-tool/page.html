@@ -102,7 +102,15 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
   .layout { grid-template-columns: 1fr; }
   nav { position: static; height: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
 }
+.tx-comment { color: var(--muted); font-style: italic; }
+.tx-cite, .tx-ref { color: var(--accent); }
+.tx-env { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
+.tx-code { font: 13px var(--mono); }
+.tx-textsc { font-variant: small-caps; }
+.tx-hidden { display: none; }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
 </head>
 <body>
 <header>
@@ -111,6 +119,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
   <span id="progress"></span>
   <span class="meta" id="spent"></span>
   <span class="grow"></span>
+  <label><input type="checkbox" id="tex" checked> Render LaTeX</label>
   <label><input type="checkbox" id="only" checked> Changes only</label>
 </header>
 <div class="layout">
@@ -188,18 +197,18 @@ function renderDoc() {
   for (const f of doc.files) {
     const sec = el("section", { class: "file" }, el("h2", {}, f.path));
     for (const p of f.passages) {
-      if (p.kind === "same") { sec.append(el("div", { class: "same" }, p.segs[0][1])); continue; }
+      if (p.kind === "same") { sec.append(el("div", { class: "same" }, tex(p.segs[0][1]))); continue; }
       changed.push(p);
       // Each run of changes is a hunk, numbered as review.py's hunks() numbers it.
       const text = el("div", { class: "text" });
       let h = null; p.hs = [];
       for (const [o, t] of p.segs) {
-        if (o === "=") { h = null; text.append(t); continue; }
+        if (o === "=") { h = null; text.append(tex(t)); continue; }
         if (!h) { h = el("span", { class: "hunk", title: "Approve, revert or comment" }); h.k = p.hs.length; p.hs.push(h); h.old = h.neu = ""; text.append(h); }
         // A paragraph break removed or added shows as a marked ¶, not as blank lines.
         const brk = /^\s*\n\s*\n\s*$/.test(t);
-        if (o === "-") { h.old += t; h.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : t)); }
-        else { h.neu += t; brk ? h.append(el("ins", { class: "mark", title: "paragraph break added" }, " ¶"), t) : h.append(el("ins", {}, t)); }
+        if (o === "-") { h.old += t; h.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : tex(t))); }
+        else { h.neu += t; brk ? h.append(el("ins", { class: "mark", title: "paragraph break added" }, " ¶"), t) : h.append(el("ins", {}, tex(t))); }
       }
       const card = el("article", { class: "card", id: "p-" + p.id },
         el("div", { class: "head" },
@@ -214,6 +223,59 @@ function renderDoc() {
     if (sec.children.length > 1) main.append(sec);
   }
   renderState();
+}
+
+// LaTeX shown as the PDF would print it. Every rendered piece keeps its source
+// in data-src, so a selection quotes the source (srcText) and lines still count.
+let refsData = { cites: {}, labels: {} }, texOn = true;
+const TEX = /(%[^\n]*)|\$([^$]+)\$|\\(cite[a-z]*)\*?(?:\[[^\]]*\])*\{([^{}]*)\}|\\(ref|autoref|cref|eqref)\{([^{}]*)\}|\\label\{[^{}]*\}|\\(path|url|texttt)\{([^{}]*)\}|\\(textbf|emph|textit|textsc)\{([^{}]*)\}|\\(begin|end)\{([^{}]*)\}((?:\{[^{}]*\}|\[[^\]]*\])*)|\\\\|\\([%&_#$,;! {}])|~|``|''|\\(item|hline|centering|toprule|midrule|bottomrule|addlinespace|noindent)(?![a-zA-Z])/g;
+function tex(str) {
+  if (!texOn) return document.createTextNode(str);
+  const f = document.createDocumentFragment();
+  let last = 0;
+  for (const m of str.matchAll(TEX)) {
+    if (m.index > last) f.append(str.slice(last, m.index));
+    f.append(texNode(m));
+    last = m.index + m[0].length;
+  }
+  if (last < str.length) f.append(str.slice(last));
+  return f;
+}
+function texNode(m) {
+  const src = m[0];
+  const node = (tag, cls, txt, title) => {
+    const e = el(tag, { class: cls, "data-src": src }, txt);
+    if (title) e.title = title;
+    return e;
+  };
+  if (m[1] != null) return node("span", "tx-comment", m[1]);
+  if (m[2] != null) {
+    const e = node("span", "tx-math", m[2]);
+    try { katex.render(m[2], e, { throwOnError: false }); } catch (_) { /* no KaTeX: the source shows */ }
+    return e;
+  }
+  if (m[3]) {
+    const ks = m[4].split(",").map(k => k.trim()), c = ks.map(k => refsData.cites[k]);
+    return node("span", "tx-cite", "[" + ks.map((k, i) => c[i]?.short || k).join("; ") + "]",
+      ks.map((k, i) => c[i]?.title || k).join("\n"));
+  }
+  if (m[5]) {
+    const n = refsData.labels[m[6]];
+    return node("span", "tx-ref", n ? (m[5] === "eqref" ? `(${n})` : n) : "??", m[6]);
+  }
+  if (m[7]) return node("code", "tx-code", m[8]);
+  if (m[9]) return node({ textbf: "b", emph: "i", textit: "i", textsc: "span" }[m[9]], "tx-" + m[9], m[10]);
+  if (m[11]) return node("span", "tx-env", `${m[11] === "begin" ? "▸" : "◂"} ${m[12]}`);
+  if (m[14]) return node("span", "", { ",": " ", ";": " ", "!": "" }[m[14]] ?? m[14]);
+  if (src === "~") return node("span", "", " ");
+  if (src === "``") return node("span", "", "“");
+  if (src === "''") return node("span", "", "”");
+  return node("span", "tx-hidden", "");   // \label, \\, layout commands
+}
+function srcText(frag) {
+  frag.querySelectorAll("del").forEach(d => d.remove());
+  frag.querySelectorAll("[data-src]").forEach(e => e.replaceWith(e.dataset.src));
+  return frag.textContent;
 }
 
 function note(who, e, cls = "") {
@@ -306,8 +368,7 @@ function lineOf(p, range) {
   const pre = document.createRange();
   pre.selectNodeContents($(".text", document.getElementById("p-" + p.id)));
   pre.setEnd(range.startContainer, range.startOffset);
-  const frag = pre.cloneContents(); frag.querySelectorAll("del").forEach(d => d.remove());
-  return p.start + (frag.textContent.match(/\n/g) || []).length;
+  return p.start + (srcText(pre.cloneContents()).match(/\n/g) || []).length;
 }
 
 function openComposer(card, quote, line, draft = "") {
@@ -370,8 +431,7 @@ function selectionInCard() {
   if (!box.contains(range.startContainer)) range.setStart(box, 0);
   if (!box.contains(range.endContainer)) range.setEnd(box, box.childNodes.length);
   if (cut) { sel.removeAllRanges(); sel.addRange(range); }
-  const frag = range.cloneContents(); frag.querySelectorAll("del").forEach(d => d.remove());
-  const quote = frag.textContent.trim();
+  const quote = srcText(range.cloneContents()).trim();
   const card = box.closest(".card");
   return quote ? { card, quote, line: lineOf(card.passage, range), range } : null;
 }
@@ -528,6 +588,13 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", changed[cur].start); }
 });
 
+try { texOn = localStorage.getItem("review-tex") !== "0"; } catch (_) {}
+$("#tex").checked = texOn;
+$("#tex").onchange = ev => {
+  texOn = ev.target.checked;
+  try { localStorage.setItem("review-tex", texOn ? "1" : "0"); } catch (_) {}
+  loadDoc(true);
+};
 $("#only").onchange = ev => $("#doc").classList.toggle("changes-only", ev.target.checked);
 
 // Locate a card after a re-render: by id, or, when its text (and so its id)
@@ -542,7 +609,8 @@ const selecting = () => {
 
 async function loadDoc(force = false) {
   const d = await api("/api/doc");   // first: it logs the edits the log must then include
-  const [l, s] = await Promise.all([api("/api/log"), api("/api/state")]);
+  const [l, s, r] = await Promise.all([api("/api/log"), api("/api/state"), api("/api/refs")]);
+  refsData = r;
   if (!force && selecting()) return;   // try again at the next poll
   // Keep what the reader is doing across the re-render: the card at the top of
   // the screen and its offset, the focused card, and any comment being written.

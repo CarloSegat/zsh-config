@@ -5,7 +5,7 @@
     review.py reply --repo DIR ID TEXT
     review.py open --repo DIR
 """
-import argparse, difflib, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid
+import argparse, difflib, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -25,7 +25,10 @@ Then answer in 1 to 3 sentences: the changed sentence quoted in full, or your qu
 MESSAGE_PROMPT = """Write the git commit message for the staged change (read it with git diff --cached), following the commit rules of this repository's CLAUDE.md files. The edits were made during a review and approved by the author. Output the message only."""
 MESSAGE = re.compile(r"(feat|fix|test|docs|refactor|tools)\([^()\n]+\)\n\n[^\n]+\n\n\S[\s\S]*")
 PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk", "dismiss"}
-TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
+# A reference, label, environment or inline math is one token, so a diff never
+# splits it and the page can render it.
+TOKEN = re.compile(r"\\(?:cite[a-z]*|ref|eqref|autoref|cref|label|path|url|begin|end|input|includegraphics)\*?"
+                   r"(?:\[[^\]]*\])*\{[^{}]*\}|\$[^$]*\$|\\[a-zA-Z]+|\\.|\s+|\w+|[^\w\s]")
 
 
 def git(repo, *args):
@@ -388,6 +391,58 @@ class Review:
                      "cost": cost, "model": MODEL})
 
 
+def bib_field(entry, name):
+    """A BibTeX field's value: braced (nesting allowed), quoted or bare."""
+    m = re.search(r"(?im)^\s*" + name + r"\s*=\s*", entry)
+    if not m:
+        return ""
+    i = m.end()
+    if entry[i:i + 1] == "{":
+        depth, j = 0, i
+        for j in range(i, len(entry)):
+            depth += {"{": 1, "}": -1}.get(entry[j], 0)
+            if depth == 0:
+                break
+        return entry[i + 1:j]
+    if entry[i:i + 1] == '"':
+        return entry[i + 1:entry.find('"', i + 1)]
+    return re.match(r"[^,\s}]*", entry[i:]).group()
+
+
+def accents(v):
+    """LaTeX accents ({\\"o}, \\'e) as Unicode letters."""
+    marks = {'"': "\u0308", "'": "\u0301", "`": "\u0300", "^": "\u0302", "~": "\u0303"}
+    return unicodedata.normalize("NFC", re.sub(r"""\\(["'`^~])\{?([A-Za-z])\}?""",
+                                               lambda m: m.group(2) + marks[m.group(1)], v))
+
+
+def refs(repo):
+    """What the page needs to render LaTeX: citation keys as "Author Year" (with
+    the title) from the repo's .bib files, and label numbers from its .aux files,
+    so \\ref shows what the last build printed."""
+    cites, labels = {}, {}
+    for f in sorted(repo.rglob("*.bib")):
+        if ".review" in f.parts:
+            continue
+        for entry in re.split(r"(?m)^(?=@)", f.read_text(errors="replace")):
+            m = re.match(r"@\w+\s*\{\s*([^,\s]+)\s*,", entry)
+            if not m:
+                continue
+            clean = lambda v: re.sub(r"\\[a-zA-Z]+|[{}\\]", "", re.sub(r"\s+", " ", accents(v))).strip()
+            # A fully braced author is an organization: keep its whole name.
+            last = [clean(a) if a.strip().startswith("{") else
+                    clean(a).split(",")[0] if "," in a else clean(a).split(" ")[-1]
+                    for a in re.split(r"\s+and\s+", bib_field(entry, "author")) if a.strip()]
+            who = (last[0] if len(last) == 1 else " & ".join(last) if len(last) == 2 else f"{last[0]} et al." if last
+                   else clean(bib_field(entry, "organization") or bib_field(entry, "title"))[:40])
+            year = (bib_field(entry, "year") or bib_field(entry, "date"))[:4]
+            cites[m.group(1)] = {"short": f"{who} {year}".strip(), "title": clean(bib_field(entry, "title"))}
+    for f in sorted(repo.rglob("*.aux")):
+        for m in re.finditer(r"\\newlabel\{([^}]*)\}\{\{([^}]*)\}", f.read_text(errors="replace")):
+            labels.setdefault(m.group(1), m.group(2))
+    return {"cites": cites, "labels": labels}
+
+
 def api_key():
     r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
                        capture_output=True, text=True)
@@ -427,6 +482,8 @@ def handler(review, port):
                 return self.send(200, {"repo": str(review.repo), "base": review.base, "model": MODEL,
                                        "has_key": api_key() is not None, "service": KEYCHAIN_SERVICE,
                                        "worker": review.agent})
+            if self.path == "/api/refs":
+                return self.send(200, refs(review.repo))
             if self.path == "/api/doc":
                 return self.send(200, review.doc())
             if self.path == "/api/state":

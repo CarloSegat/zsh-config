@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Local review page for text changes since a git ref (see SKILL.md).
 
-    review.py serve --base REF [--repo DIR] [--port N] [FILE ...]
+    review.py serve --base REF [--repo DIR] [--port N] [--check CMD] [FILE ...]
     review.py reply --repo DIR ID TEXT
     review.py open --repo DIR
 """
-import argparse, difflib, hashlib, json, os, re, subprocess, sys, threading, time, uuid
+import argparse, difflib, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -13,7 +13,18 @@ HERE = Path(__file__).resolve().parent
 KEYCHAIN_SERVICE = "anthropic-api-credits"
 MODEL = "claude-sonnet-5-5"
 CONTEXT_TOOLS = "Read,Grep,Glob,Bash(grep:*),Bash(sed:*)"
-PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk"}
+EDIT_TOOLS = "Read,Grep,Glob,Edit(./**)"   # edits inside the repo only; no shell, so no commit
+COMMENT_PROMPT = """A reviewer of the uncommitted text changes in this repository left a comment on {file}, near line {line}.
+
+Selected text: {quote}
+Comment: {text}
+
+Do what the comment asks, editing the files, under the rules of this repository's CLAUDE.md files. A deletion the comment asks for is approved by the comment. Do not commit. If the comment needs a decision the files cannot settle, change nothing and ask.
+
+Then answer in 1 to 3 sentences: the changed sentence quoted in full, or your question. Nothing else."""
+MESSAGE_PROMPT = """Write the git commit message for the staged change (read it with git diff --cached), following the commit rules of this repository's CLAUDE.md files. The edits were made during a review and approved by the author. Output the message only."""
+MESSAGE = re.compile(r"(feat|fix|test|docs|refactor|tools)\([^()\n]+\)\n\n[^\n]+\n\n\S[\s\S]*")
+PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk", "dismiss"}
 TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
 
 
@@ -168,14 +179,16 @@ def hunks(segs):
 
 
 class Review:
-    def __init__(self, repo, base, files):
-        self.repo, self.base, self.files = repo, base, files
+    def __init__(self, repo, base, files, check=None):
+        self.repo, self.base, self.files, self.check = repo, base, files, check
         self.dir = repo / ".review"
         self.dir.mkdir(exist_ok=True)
         (self.dir / ".gitignore").write_text("*\n")
         self.log_path = self.dir / "log.jsonl"
         self.log_path.touch()
         self.lock = threading.Lock()
+        self.queue = queue.Queue()   # comments and approvals, handled one at a time
+        self.agent = False           # comments go to claude -p (there is an API key)
 
     def text(self, path):
         f = self.repo / path
@@ -232,7 +245,8 @@ class Review:
         return self.append({"type": "revert", "passage": p["id"], "file": path, "line": p["start"],
                             "removed": new, "restored": old})
 
-    def contextualize(self, body):
+    def claude(self, prompt, tools):
+        """Run claude -p in the repo on the Keychain API key; return its result event."""
         key = api_key()
         if not key:
             raise RuntimeError(f"No API key in the Keychain (service {KEYCHAIN_SERVICE}).")
@@ -241,11 +255,10 @@ class Review:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("CLAUDE") and k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
         env["ANTHROPIC_API_KEY"] = key
-        prompt = f"/contextualize {body['quote']}\n\n(It is in {body['file']}, near line {body['line']}.)"
-        r = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--allowedTools", CONTEXT_TOOLS,
-                            "--output-format", "stream-json", "--verbose"],
+        r = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--allowedTools", tools,
+                            "--permission-mode", "dontAsk", "--output-format", "stream-json", "--verbose"],
                            cwd=self.repo, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                           timeout=300)
+                           timeout=600)
         events = [json.loads(l) for l in r.stdout.splitlines() if l.startswith("{")]
         init = next((e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), {})
         result = next((e for e in events if e.get("type") == "result"), None)
@@ -253,9 +266,99 @@ class Review:
             raise RuntimeError(f"claude -p did not use the API key (apiKeySource={init.get('apiKeySource')}).")
         if not result or result.get("is_error"):
             raise RuntimeError((result or {}).get("result") or r.stderr[-500:] or "claude -p failed")
+        return result
+
+    def contextualize(self, body):
+        result = self.claude(f"/contextualize {body['quote']}\n\n(It is in {body['file']}, near line {body['line']}.)",
+                             CONTEXT_TOOLS)
         return self.append({"type": "context", "passage": body["passage"], "file": body["file"],
                             "line": body["line"], "quote": body["quote"], "text": result["result"],
                             "cost": result.get("total_cost_usd"), "model": MODEL})
+
+    def start_worker(self):
+        """Handle comments (with an API key) and passage approvals one at a time,
+        so no 2 jobs touch a file at once; comments an earlier server left
+        unanswered go first."""
+        self.agent = api_key() is not None
+        threading.Thread(target=self.work, daemon=True).start()
+        if not self.agent:
+            return
+        log = self.log()
+        answered = {e["to"] for e in log if e["type"] == "reply"}
+        for e in log:
+            if e["type"] == "comment" and e["id"] not in answered:
+                self.queue.put(e)
+
+    def enqueue(self, e):
+        if e["type"] == "approve" or (e["type"] == "comment" and self.agent):
+            self.queue.put(e)
+
+    def work(self):
+        while True:
+            e = self.queue.get()
+            try:
+                self.answer(e) if e["type"] == "comment" else self.commit(e)
+            except Exception as err:   # keep the worker alive
+                self.append({"type": "commit", "passage": e.get("passage"), "file": e.get("file"),
+                             "line": e.get("line"), "error": str(err)})
+
+    def commit(self, e):
+        """Commit the uncommitted edits inside an approved passage, and nothing else."""
+        path, at = e["file"], {"type": "commit", "passage": e["passage"], "file": e["file"], "line": e["line"]}
+        p = next((p for p in passages(path, self.old_text(path), self.text(path)) if p["id"] == e["passage"]), None)
+        if not p:
+            return self.append({**at, "error": "the passage changed after it was approved"})
+        if git(self.repo, "diff", "--cached", "--quiet").returncode:
+            return self.append({**at, "error": "other changes are staged; commit or unstage them first"})
+        diff = git(self.repo, "diff", "-U0", "HEAD", "--", path).stdout
+        head, *hs = re.split(r"(?m)^(?=@@ )", diff) if diff else [""]
+        keep = []
+        for h in hs:
+            c, d = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", h).groups()
+            c, d = int(c), 1 if d is None else int(d)
+            if (c <= p["end"] and c + d - 1 >= p["start"]) if d else p["start"] - 1 <= c <= p["end"]:
+                keep.append(h)
+        if not keep:
+            return self.append({**at, "skipped": "nothing uncommitted in the passage"})
+        if self.check:
+            r = subprocess.run(self.check, shell=True, cwd=self.repo, capture_output=True, text=True, timeout=900)
+            if r.returncode:
+                return self.append({**at, "error": f"check failed: {self.check}\n{(r.stdout + r.stderr)[-400:]}"})
+        r = subprocess.run(["git", "-C", str(self.repo), "apply", "--cached", "--unidiff-zero", "-"],
+                           input=head + "".join(keep), capture_output=True, text=True)
+        if r.returncode:
+            return self.append({**at, "error": "git apply: " + r.stderr[-400:]})
+        msg, cost = None, None
+        if self.agent:
+            try:
+                res = self.claude(MESSAGE_PROMPT, "Read,Bash(git diff:*)")
+                msg, cost = res["result"].strip().strip("`").strip(), res.get("total_cost_usd")
+            except Exception:
+                pass
+        if not msg or not MESSAGE.fullmatch(msg):
+            span = f"line {p['start']}" if p["start"] == p["end"] else f"lines {p['start']}-{p['end']}"
+            msg = (f"docs(review {Path(path).stem})\n\nApply approved review edits to {path}, {span}\n\n"
+                   f"Edits made during the review of {path}, {span}, approved by the author on the review page.")
+        r = subprocess.run(["git", "-C", str(self.repo), "commit", "-q", "-F", "-"], input=msg + "\n",
+                           capture_output=True, text=True)
+        if r.returncode:
+            git(self.repo, "reset", "-q", "--", path)
+            return self.append({**at, "error": "git commit: " + (r.stderr or r.stdout)[-400:]})
+        sha = git(self.repo, "rev-parse", "--short", "HEAD").stdout.strip()
+        return self.append({**at, "sha": sha, "message": msg, "cost": cost, "model": MODEL if cost else None})
+
+    def answer(self, c):
+        before = self.version()
+        try:
+            r = self.claude(COMMENT_PROMPT.format(file=c["file"], line=c["line"], text=c["text"],
+                                                  quote=c.get("quote") or "(none: the whole passage)"), EDIT_TOOLS)
+            text, cost = r["result"], r.get("total_cost_usd")
+        except Exception as e:
+            text, cost = f"Failed: {e}", None
+        # edited: whether a reviewed file changed; the page keeps showing the
+        # comment when it did not (a question, a refusal, a failure).
+        self.append({"type": "reply", "to": c["id"], "text": text, "edited": self.version() != before,
+                     "cost": cost, "model": MODEL})
 
 
 def api_key():
@@ -295,7 +398,8 @@ def handler(review, port):
                 return self.send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == "/api/info":
                 return self.send(200, {"repo": str(review.repo), "base": review.base, "model": MODEL,
-                                       "has_key": api_key() is not None, "service": KEYCHAIN_SERVICE})
+                                       "has_key": api_key() is not None, "service": KEYCHAIN_SERVICE,
+                                       "worker": review.agent})
             if self.path == "/api/doc":
                 return self.send(200, review.doc())
             if self.path == "/api/state":
@@ -312,8 +416,10 @@ def handler(review, port):
                 if self.path == "/api/log":
                     if body.get("type") not in PAGE_TYPES:
                         return self.send(400, {"error": "bad type"})
-                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "old", "new") if k in body}
-                    return self.send(200, review.append(keep))
+                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "old", "new", "to") if k in body}
+                    e = review.append(keep)
+                    review.enqueue(e)
+                    return self.send(200, e)
                 if self.path == "/api/revert":
                     try:
                         return self.send(200, review.revert(body))
@@ -342,6 +448,7 @@ def main():
     s.add_argument("--base", required=True)
     s.add_argument("--repo", default=".")
     s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--check", help="shell command that must pass before an approval commits, e.g. a build")
     s.add_argument("files", nargs="*")
     r = sub.add_parser("reply")
     r.add_argument("--repo", default=".")
@@ -356,7 +463,8 @@ def main():
         if git(repo, "rev-parse", "--verify", a.base + "^{commit}").returncode:
             sys.exit(f"unknown ref: {a.base}")
         files = a.files or git(repo, "diff", "--name-only", a.base).stdout.split()
-        review = Review(repo, a.base, files)
+        review = Review(repo, a.base, files, a.check)
+        review.start_worker()
         for port in range(a.port, a.port + 20):
             try:
                 server = ThreadingHTTPServer(("127.0.0.1", port), handler(review, port))

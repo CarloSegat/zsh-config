@@ -79,6 +79,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .note blockquote { margin: 4px 0; padding: 4px 8px; background: var(--quote); border-radius: 4px;
   font: 13.5px/1.5 var(--read); white-space: pre-wrap; }
 .note .body { white-space: pre-wrap; }
+.note.reply { margin-left: 18px; }
+.note.reply button { margin-top: 6px; }
 .composer { border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px; }
 .composer textarea { width: 100%; min-height: 70px; font: 14px/1.45 var(--ui); padding: 6px 8px; border: 1px solid var(--line);
   border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
@@ -139,7 +141,7 @@ let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
 
 function derive() {
-  S = { approved: new Set(), hunks: new Set(), comments: [], replies: {}, contexts: [], spent: 0, open: [] };
+  S = { approved: new Set(), hunks: new Set(), comments: [], replies: {}, dismissed: new Set(), commits: {}, contexts: [], spent: 0, open: [], asked: [] };
   for (const e of log) {
     if (e.type === "approve") S.approved.add(e.passage);
     if (e.type === "unapprove") S.approved.delete(e.passage);
@@ -147,10 +149,14 @@ function derive() {
     if (e.type === "approve_hunk") S.hunks.add(hkey(e.file, e.old, e.new));
     if (e.type === "unapprove_hunk") S.hunks.delete(hkey(e.file, e.old, e.new));
     if (e.type === "comment") S.comments.push(e);
-    if (e.type === "reply") (S.replies[e.to] ||= []).push(e);
+    if (e.type === "reply") { (S.replies[e.to] ||= []).push(e); S.spent += e.cost || 0; }
+    if (e.type === "dismiss") S.dismissed.add(e.to);
+    if (e.type === "commit") { S.commits[e.passage] = e; S.spent += e.cost || 0; }
     if (e.type === "context") { S.contexts.push(e); S.spent += e.cost || 0; }
   }
   S.open = S.comments.filter(e => !S.replies[e.id]);
+  // Answered without an edit (a question, a refusal, a failure): shown until dismissed.
+  S.asked = S.comments.filter(e => S.replies[e.id]?.at(-1).edited === false && !S.dismissed.has(e.id));
 }
 
 // The passage a note belongs to. Editing a passage changes its id, so a note
@@ -218,20 +224,35 @@ function renderState() {
   for (const p of changed) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
   for (const th of Object.values(threads)) th.replaceChildren();
   // Only comments still waiting for Claude show; answered ones are done with.
-  for (const c of S.open) threads[home(c)]?.append(note("You", c));
+  for (const c of S.open) {
+    const n = note("You", c);
+    if (info.worker) n.children[1].append(` · ${info.model} is on it…`);
+    threads[home(c)]?.append(n);
+  }
+  for (const c of S.asked) {
+    const th = threads[home(c)];
+    if (!th) continue;
+    th.append(note("You", c));
+    const r = note("Claude", S.replies[c.id].at(-1), "reply");
+    r.append(el("div", {}, el("button", { "data-act": "dismiss", "data-id": c.id }, "Dismiss")));
+    th.append(r);
+  }
   for (const c of S.contexts) threads[home(c)]?.append(note("Context", c));
   for (const q of inflight) threads[home(q)]?.append(waiting(q));
   for (const p of changed) {
     const card = document.getElementById("p-" + p.id);
-    const ok = pOk(p);
+    const ok = pOk(p), cm = S.commits[p.id];
     card.classList.toggle("ok", ok);
     const b = $('[data-act="approve"]', card);
-    b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
+    // Approving a passage commits its uncommitted edits (review.py commit()).
+    b.textContent = !ok ? "Approve" : cm?.sha ? `Committed ${cm.sha}` : S.approved.has(p.id) && !cm ? "Committing…" : "Approved";
+    b.classList.toggle("approved", ok);
+    if (cm?.error && S.approved.has(p.id)) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
     for (const h of card.querySelectorAll(".hunk")) h.classList.toggle("ok", hunkOk(p, h));
   }
   const done = changed.filter(pOk).length;
   $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
-  $("#spent").textContent = info.has_key ? `Contextualize: $${S.spent.toFixed(2)} · API credits` : "Contextualize off: no API key";
+  $("#spent").textContent = info.has_key ? `API credits spent: $${S.spent.toFixed(2)}` : "Contextualize off: no API key";
   renderSide();
 }
 
@@ -454,6 +475,7 @@ $("#doc").addEventListener("click", async ev => {
   if (!act || !card) return;
   const p = card.passage;
   if (act === "note") openComposer(card, "", p.start);
+  if (act === "dismiss") { await post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }); renderState(); }
   if (act === "approve") {
     if (pOk(p)) await unapprove(p);
     else await post({ type: "approve", passage: p.id, file: p.file, line: p.start });

@@ -179,6 +179,8 @@ function derive() {
   S.open = S.comments.filter(e => !S.replies[e.id]);
   // Answered without an edit (a question, a refusal, a failure): shown until dismissed.
   S.asked = S.comments.filter(e => S.replies[e.id]?.at(-1).edited === false && !S.dismissed.has(e.id));
+  // Waiting for Claude or for the reader: listed in the sidebar, and their card stays open.
+  S.live = [...S.open, ...S.asked];
 }
 
 // The passage a note belongs to. Editing a passage changes its id, so a note
@@ -330,7 +332,8 @@ function renderState() {
       : cm?.skipped ? "Already committed" : !cm ? "Committing…" : "Approved";
     b.classList.toggle("approved", ok);
     b.disabled = busy;
-    card.classList.toggle("done", !!(ok && (cm?.sha || cm?.skipped)));   // committed: collapsed to its head
+    // Committed: collapsed to its head.
+    card.classList.toggle("done", !!(ok && (cm?.sha || cm?.skipped)) && !S.live.some(c => home(c) === p.id));
     if (cm?.error && S.approved.has(p.id)) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
     for (const h of p.hs) {
       const ok = hunkOk(p, h);
@@ -347,16 +350,16 @@ function renderState() {
 function renderSide() {
   const side = $("#side"); side.replaceChildren();
   side.append(el("h2", {}, "Open comments"));
-  if (!S.open.length) side.append(el("div", { class: "empty" }, "None"));
-  for (const c of S.open) {
+  if (!S.live.length) side.append(el("div", { class: "empty" }, "None"));
+  for (const c of S.live) {   // a comment Claude answered with a question shows the question
     const a = el("a", { href: "#p-" + home(c) }, el("span", { class: "dot open" }),
-      el("span", { class: "where" }, `${c.file.split("/").pop()}:${c.line}`), el("span", { class: "gist" }, c.text));
+      el("span", { class: "where" }, `${c.file.split("/").pop()}:${c.line}`), el("span", { class: "gist" }, S.replies[c.id]?.at(-1).text ?? c.text));
     side.append(a);
   }
   let file = null;
   for (const [i, p] of changed.entries()) {
     if (p.file !== file) { file = p.file; side.append(el("h2", {}, file)); }
-    const state = S.open.some(c => home(c) === p.id) ? "open" : pOk(p) ? "ok" : "";
+    const state = S.live.some(c => home(c) === p.id) ? "open" : pOk(p) ? "ok" : "";
     const a = el("a", { href: "#p-" + p.id, class: i === cur ? "cur" : "" }, el("span", { class: "dot " + state }),
       el("span", { class: "where" }, where(p)), el("span", { class: "gist" }, gist(p)));
     a.onclick = ev => { ev.preventDefault(); focusCard(i); };

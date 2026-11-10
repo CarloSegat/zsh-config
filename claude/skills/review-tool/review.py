@@ -5,7 +5,7 @@
     review.py reply --repo DIR ID TEXT
     review.py open --repo DIR
 """
-import argparse, difflib, functools, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
+import argparse, bisect, difflib, functools, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -24,7 +24,7 @@ Do what the comment asks, editing the files, under the rules of this repository'
 Then answer in 1 to 3 sentences: the changed sentence quoted in full, or your question. Nothing else."""
 MESSAGE_PROMPT = """Write the git commit message for the staged change (read it with git diff --cached), following the commit rules of this repository's CLAUDE.md files. The edits were made during a review and approved by the author. Output the message only."""
 MESSAGE = re.compile(r"(feat|fix|test|docs|refactor|tools)\([^()\n]+\)\n\n[^\n]+\n\n\S[\s\S]*")
-PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk", "dismiss"}
+PAGE_TYPES = {"comment", "approve", "unapprove", "approve_hunk", "unapprove_hunk", "dismiss", "split"}
 # A reference, label, environment or inline math is one token, so a diff never
 # splits it and the page can render it.
 TOKEN = re.compile(r"\\(?:cite[a-z]*|ref|eqref|autoref|cref|label|path|url|begin|end|input|includegraphics)\*?"
@@ -161,62 +161,144 @@ def passages(path, old, new):
 
 
 @functools.lru_cache(maxsize=4096)
-def similarity(a, b):
-    return difflib.SequenceMatcher(None, TOKEN.findall(a), TOKEN.findall(b), autojunk=False).ratio()
+def matched(a, b):
+    """Tokens of a found, in order, in b, and the token count of a and of b."""
+    ta, tb = TOKEN.findall(a), TOKEN.findall(b)
+    sm = difflib.SequenceMatcher(None, ta, tb, autojunk=False)
+    return sum(m.size for m in sm.get_matching_blocks()), len(ta), len(tb)
 
 
-def since_approved(path, ps, approved):
+def approved_for(cands, new):
+    """The approved text that new grew from: most of it survives in new, and it
+    is no stray phrase beside it. The one sharing most of new wins."""
+    best, most = None, 0
+    for c in cands:
+        m, la, lb = matched(c, new)
+        if la and m >= 0.6 * la and la >= 0.15 * lb and m > most:
+            best, most = c, m
+    return best
+
+
+def since_approved(path, ps, approved, cuts):
     """Show a hunk changed after its approval as the change since: its segments
-    become the diff from the approved text for the same base text closest to it,
-    each tagged with an index into the passage's "subs". A sub carries the hunk's
-    base key (old, new), the approved text `prev`, and `next`, what approving
-    that change alone leaves approved."""
+    become the diff from the text approved for the same base text, each change
+    tagged with an index into the passage's "subs". A hunk a split line crosses
+    is tagged the same way against its base text, cut there. A sub carries the
+    hunk's base key (old, new), the approved text `prev`, and its own change to
+    prev: `ins` in place of prev[a:b]."""
     mine = {}
     for f, o, n in approved:
-        if f == path:
+        if f == path and n:
             mine.setdefault(o, []).append(n)
     for p in ps:
         if p["kind"] != "changed":
             continue
-        out, run, p["subs"] = [], [], []
+        at = cuts.get(p["id"], [])
+        out, run, p["subs"], p["base"] = [], [], [], p["segs"]
+        pos = 0   # in the passage's new text
 
         def flush():
+            nonlocal pos
             old = "".join(t for o, t in run if o == "-")
             new = "".join(t for o, t in run if o == "+")
-            cands = [] if (path, old, new) in approved else [
-                c for c in mine.get(old, ()) if min(len(c), len(new)) >= 0.6 * max(len(c), len(new)) > 0]
-            prev = max(cands, key=lambda c: similarity(c, new), default=None)
-            if prev is None or similarity(prev, new) < 0.6:
+            start = pos
+            prev = None if (path, old, new) in approved else approved_for(mine.get(old, ()), new)
+            if prev is None and not any(start < c < start + len(new) for c in at):
                 out.extend(run)
-            else:
-                pos, cur = 0, None
-                for o, t in word_diff(prev, new):
+                pos += len(new)
+                run.clear()
+                return
+            segs = run[:] if prev is None else word_diff(prev, new)
+            prev = old if prev is None else prev
+            ppos, cur = 0, None
+            for o, t in segs:
+                for piece in cut_at(o, t, pos, at):
                     if o == "=":
-                        out.append([o, t])
-                        pos, cur = pos + len(t), None
-                        continue
-                    if cur is None:
-                        cur = {"old": old, "new": new, "prev": prev, "a": pos, "b": pos, "ins": ""}
-                        p["subs"].append(cur)
-                    if o == "-":
-                        pos += len(t)
-                        cur["b"] = pos
+                        out.append([o, piece])
+                        cur = None
                     else:
-                        cur["ins"] += t
-                    out.append([o, t, len(p["subs"]) - 1])
+                        side = bisect.bisect_right(at, pos)
+                        if cur is None or cur["side"] != side:
+                            cur = {"old": old, "new": new, "prev": prev, "a": ppos, "b": ppos, "ins": "", "side": side}
+                            p["subs"].append(cur)
+                        if o == "-":
+                            cur["b"] = ppos + len(piece)
+                        else:
+                            cur["ins"] += piece
+                        out.append([o, piece, len(p["subs"]) - 1])
+                    if o != "-":
+                        pos += len(piece)
+                    if o != "+":
+                        ppos += len(piece)
             run.clear()
 
-        for s in p["segs"]:
-            if s[0] == "=":
+        for seg in p["segs"]:
+            if seg[0] == "=":
                 flush()
-                out.append(s)
+                for piece in cut_at("=", seg[1], pos, at):
+                    out.append(["=", piece])
+                    pos += len(piece)
             else:
-                run.append(s)
+                run.append(seg)
         flush()
         p["segs"] = out
-        for s in p["subs"]:
-            s["next"] = s["prev"][:s.pop("a")] + s.pop("ins") + s["prev"][s.pop("b"):]
+        for sub in p["subs"]:
+            del sub["side"]
     return ps
+
+
+def cut_at(o, t, pos, at):
+    """Segment text t at pos, in pieces that no position in `at` falls inside."""
+    if o == "-":
+        return [t]
+    out, last = [], 0
+    for c in at:
+        if pos + last < c < pos + len(t):
+            out.append(t[last:c - pos])
+            last = c - pos
+    return out + [t[last:]]
+
+
+def split(path, ps, cuts):
+    """Cut each passage at its split positions; a removed text there opens the
+    later part. A part's id and kind depend on the passage's diff from the base
+    only, so approving the part leaves them as they were."""
+    out = []
+    for p in ps:
+        base = p.pop("base", [])
+        at = cuts.get(p["id"])
+        if not at:
+            out.append(p)
+            continue
+        changed, pos = set(), 0
+        for o, t in base:
+            if o != "=":
+                changed.update(range(bisect.bisect_right(at, pos), bisect.bisect_right(at, pos + max(len(t), 1) - 1) + 1)
+                               if o == "+" else [bisect.bisect_right(at, pos)])
+            if o != "-":
+                pos += len(t)
+        parts = [[] for _ in range(len(at) + 1)]
+        pos = 0
+        for seg in p["segs"]:
+            parts[bisect.bisect_right(at, pos)].append(seg)
+            if seg[0] != "-":
+                pos += len(seg[1])
+        line = p["start"]
+        for i, segs in enumerate(parts):
+            new = "".join(t for o, t, *_ in segs if o != "-")
+            subs, index = [], {}
+            for seg in segs:
+                if len(seg) > 2:
+                    if seg[2] not in index:
+                        index[seg[2]] = len(subs)
+                        subs.append(p["subs"][seg[2]])
+                    seg[2] = index[seg[2]]
+            q = {"id": hashlib.sha1(f"{p['id']}\0{i}\0{new}".encode()).hexdigest()[:12], "file": path,
+                 "start": line, "end": line + new.rstrip("\n").count("\n"),
+                 "kind": "changed" if i in changed else "same", "segs": segs, "subs": subs}
+            line = q["end"] + 1
+            out.append(q)
+    return out
 
 
 def hunks(segs):
@@ -238,6 +320,34 @@ def hunks(segs):
             pos += len(t)
             cur[1] = pos
     return [tuple(h) for h in out]
+
+
+def staged(head, work, start, end):
+    """HEAD's text with work's lines start..end (from 1) in place of the lines
+    they replace. A run of changed lines crossing the range gives it a share of
+    its removed lines in proportion; a removal right after the range's last
+    line is the range's when a blank line or the end of the file follows. The
+    blank lines that open or close a run go with any range taking from it."""
+    a, b = head.splitlines(keepends=True), work.splitlines(keepends=True)
+    lo, hi, out = start - 1, end, []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op == "equal":
+            out += a[i1:i2]
+            continue
+        at = [j1 + (i - i1) * (j2 - j1) / (i2 - i1) for i in range(i1, i2)]
+        mine = (lambda j: lo <= j < hi) if j2 > j1 else \
+            (lambda j: lo <= j < hi or (j == hi and (hi >= len(b) or not b[hi].strip())))
+        take = {j for j in range(j1, j2) if lo <= j < hi}
+        if take:   # the blank lines opening or closing the run keep paragraphs apart
+            for js in (range(j1, j2), range(j2 - 1, j1 - 1, -1)):
+                for j in js:
+                    if b[j].strip():
+                        break
+                    take.add(j)
+        out += [a[i] for i, j in zip(range(i1, i2), at) if j < lo and not mine(j)]
+        out += [b[j] for j in sorted(take)]
+        out += [a[i] for i, j in zip(range(i1, i2), at) if j >= lo and not mine(j)]
+    return "".join(out)
 
 
 class Review:
@@ -267,15 +377,33 @@ class Review:
         return {"files": [{"path": p, "passages": self.shown(p)} for p in self.files]}
 
     def shown(self, path):
-        """A file's passages as the page shows them."""
-        approved = set()
+        """A file's passages as the page shows them: cut where the reviewer split
+        them, a change made after approval shown as the change since."""
+        approved, anchors = set(), []
         for e in self.log():
-            k = (e.get("file"), e.get("old"), e.get("new"))
+            if e.get("file") != path:
+                continue
+            k = (path, e.get("old"), e.get("new"))
             if e["type"] == "approve_hunk":
                 approved.add(k)
             elif e["type"] == "unapprove_hunk":
                 approved.discard(k)
-        return since_approved(path, passages(path, self.old_text(path), self.text(path)), approved)
+            elif e["type"] == "split":
+                anchors.append((e["line"], e["text"]))
+        ps = passages(path, self.old_text(path), self.text(path))
+        lines = {p["id"]: "".join(t for o, t in p["segs"] if o != "-").split("\n") for p in ps if p["kind"] == "changed"}
+        cuts = {}
+        for line, anchor in anchors:
+            # A split opens at its line where that still reads the same, else at
+            # its line number in the passage that holds that number.
+            p = next((p for p in ps if p["id"] in lines and p["start"] < line <= p["end"]), None)
+            hit = next(((q, lines[q["id"]].index(anchor, 1)) for q in ([p] if p else []) + ps
+                        if q["id"] in lines and anchor in lines[q["id"]][1:]), None) or (p and (p, line - p["start"]))
+            if hit:
+                p, k = hit
+                cuts.setdefault(p["id"], set()).add(sum(len(l) + 1 for l in lines[p["id"]][:k]))
+        cuts = {pid: sorted(at) for pid, at in cuts.items()}
+        return split(path, since_approved(path, ps, approved, cuts), cuts)
 
     def keys(self, path, text):
         return {(h[2], h[3]) for p in passages(path, self.old_text(path), text) if p["kind"] == "changed"
@@ -404,29 +532,25 @@ class Review:
     def commit(self, e):
         """Commit the uncommitted edits inside an approved passage, and nothing else."""
         path, at = e["file"], {"type": "commit", "passage": e["passage"], "file": e["file"], "line": e["line"]}
-        p = next((p for p in passages(path, self.old_text(path), self.text(path)) if p["id"] == e["passage"]), None)
+        p = next((p for p in self.shown(path) if p["id"] == e["passage"]), None)
         if not p:
             return self.append({**at, "error": "the passage changed after it was approved"})
         if git(self.repo, "diff", "--cached", "--quiet").returncode:
             return self.append({**at, "error": "other changes are staged; commit or unstage them first"})
-        diff = git(self.repo, "diff", "-U0", "HEAD", "--", path).stdout
-        head, *hs = re.split(r"(?m)^(?=@@ )", diff) if diff else [""]
-        keep = []
-        for h in hs:
-            c, d = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", h).groups()
-            c, d = int(c), 1 if d is None else int(d)
-            if (c <= p["end"] and c + d - 1 >= p["start"]) if d else p["start"] - 1 <= c <= p["end"]:
-                keep.append(h)
-        if not keep:
+        head = git(self.repo, "show", f"HEAD:{path}").stdout
+        text = staged(head, self.text(path), p["start"], p["end"])
+        if text == head:
             return self.append({**at, "skipped": "nothing uncommitted in the passage"})
         if self.check:
             r = subprocess.run(self.check, shell=True, cwd=self.repo, capture_output=True, text=True, timeout=900)
             if r.returncode:
                 return self.append({**at, "error": f"check failed: {self.check}\n{(r.stdout + r.stderr)[-400:]}"})
-        r = subprocess.run(["git", "-C", str(self.repo), "apply", "--cached", "--unidiff-zero", "-"],
-                           input=head + "".join(keep), capture_output=True, text=True)
+        blob = subprocess.run(["git", "-C", str(self.repo), "hash-object", "-w", "--stdin"], input=text,
+                              capture_output=True, text=True).stdout.strip()
+        mode = git(self.repo, "ls-files", "-s", "--", path).stdout.split(" ")[0] or "100644"
+        r = git(self.repo, "update-index", "--cacheinfo", f"{mode},{blob},{path}")
         if r.returncode:
-            return self.append({**at, "error": "git apply: " + r.stderr[-400:]})
+            return self.append({**at, "error": "git update-index: " + r.stderr[-400:]})
         msg, cost = None, None
         if self.agent:
             try:

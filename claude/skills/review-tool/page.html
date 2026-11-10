@@ -50,6 +50,8 @@ main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin: 14px 0; scroll-margin-top: 64px; }
 .card.cur { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card.ok { border-color: var(--ok); }
+.card.fresh { animation: fresh 3s ease-out; }
+@keyframes fresh { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 3px transparent; } }
 .card .head { display: flex; gap: 8px; align-items: center; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--line); }
 .card .head .where { font: 12px var(--mono); color: var(--muted); flex: 1; }
 .text { font: 15.5px/1.62 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; }
@@ -72,6 +74,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   font: 13.5px/1.5 var(--read); white-space: pre-wrap; }
 .note .body { white-space: pre-wrap; }
 .note.reply { margin-left: 18px; }
+.note .acts { display: flex; gap: 6px; margin-top: 6px; }
 .composer { border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px; }
 .composer textarea { width: 100%; min-height: 70px; font: 14px/1.45 var(--ui); padding: 6px 8px; border: 1px solid var(--line);
   border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
@@ -95,7 +98,6 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
   <span id="progress"></span>
   <span class="meta" id="spent"></span>
   <span class="grow"></span>
-  <span id="banner" hidden>Text changed on disk <button id="reload">Reload</button></span>
   <label><input type="checkbox" id="only" checked> Changes only</label>
 </header>
 <div class="layout">
@@ -123,19 +125,31 @@ function el(tag, attrs = {}, ...kids) {
 }
 
 let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null;
-let changed = [];   // changed passages in reading order
-let S = {};         // state derived from the log
+let changed = [];        // changed passages in reading order
+let S = {};              // state derived from the log
+const inflight = new Set();  // contextualize requests still running
 
 function derive() {
-  S = { approved: new Set(), comments: {}, replies: {}, contexts: {}, spent: 0, open: [] };
+  S = { approved: new Set(), comments: [], replies: {}, contexts: [], spent: 0, open: [] };
   for (const e of log) {
     if (e.type === "approve") S.approved.add(e.passage);
     if (e.type === "unapprove") S.approved.delete(e.passage);
-    if (e.type === "comment") (S.comments[e.passage] ||= []).push(e);
+    if (e.type === "comment") S.comments.push(e);
     if (e.type === "reply") (S.replies[e.to] ||= []).push(e);
-    if (e.type === "context") { (S.contexts[e.passage] ||= []).push(e); S.spent += e.cost || 0; }
+    if (e.type === "context") { S.contexts.push(e); S.spent += e.cost || 0; }
   }
-  S.open = log.filter(e => e.type === "comment" && !S.replies[e.id]);
+  S.open = S.comments.filter(e => !S.replies[e.id]);
+}
+
+// The passage a note belongs to. Editing a passage changes its id, so a note
+// whose passage is gone follows its file and line to the passage there now.
+function home(e) {
+  if (changed.some(p => p.id === e.passage)) return e.passage;
+  const ps = changed.filter(p => p.file === e.file);
+  if (!ps.length) return null;
+  const hit = ps.find(p => e.line >= p.start && e.line <= p.end)
+    || ps.reduce((a, b) => Math.abs(b.start - e.line) < Math.abs(a.start - e.line) ? b : a);
+  return hit.id;
 }
 
 const where = p => `${p.file.split("/").pop()}:${p.start === p.end ? p.start : p.start + "–" + p.end}`;
@@ -181,19 +195,37 @@ function note(who, e, cls = "") {
   return n;
 }
 
+function waiting(q) {
+  return el("div", { class: "note" }, el("span", { class: "who claude" }, "Context"),
+    el("span", { class: "meta" }, `${info.model} is reading the repo…`), el("blockquote", {}, q.quote));
+}
+
 function renderState() {
+  const threads = {};
+  for (const p of changed) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
+  for (const th of Object.values(threads)) th.replaceChildren();
+  for (const c of S.comments) {
+    const th = threads[home(c)];
+    if (!th) continue;
+    th.append(note("You", c));
+    const rs = S.replies[c.id] || [];
+    for (const r of rs) th.append(note("Claude", r, "reply"));
+    if (rs.length) {
+      // After Claude's answer: accept the passage as it now reads, or ask for more.
+      const ok = S.approved.has(home(c));
+      th.lastChild.append(el("div", { class: "acts" },
+        el("button", { "data-act": "approve", class: ok ? "approved" : "" }, ok ? "Approved" : "Approve"),
+        el("button", { "data-act": "note" }, "Comment again")));
+    }
+  }
+  for (const c of S.contexts) threads[home(c)]?.append(note("Context", c));
+  for (const q of inflight) threads[home(q)]?.append(waiting(q));
   for (const p of changed) {
     const card = document.getElementById("p-" + p.id);
     const ok = S.approved.has(p.id);
     card.classList.toggle("ok", ok);
     const b = $('[data-act="approve"]', card);
     b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
-    const th = $(".thread", card); th.replaceChildren();
-    for (const c of S.comments[p.id] || []) {
-      th.append(note("You", c));
-      for (const r of S.replies[c.id] || []) th.append(note("Claude", r, "reply"));
-    }
-    for (const c of S.contexts[p.id] || []) th.append(note("Context", c));
   }
   const done = changed.filter(p => S.approved.has(p.id)).length;
   $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
@@ -206,14 +238,14 @@ function renderSide() {
   side.append(el("h2", {}, "Open comments"));
   if (!S.open.length) side.append(el("div", { class: "empty" }, "None"));
   for (const c of S.open) {
-    const a = el("a", { href: "#p-" + c.passage }, el("span", { class: "dot open" }),
+    const a = el("a", { href: "#p-" + home(c) }, el("span", { class: "dot open" }),
       el("span", { class: "where" }, `${c.file.split("/").pop()}:${c.line}`), el("span", { class: "gist" }, c.text));
     side.append(a);
   }
   let file = null;
   for (const [i, p] of changed.entries()) {
     if (p.file !== file) { file = p.file; side.append(el("h2", {}, file)); }
-    const state = (S.comments[p.id] || []).some(c => !S.replies[c.id]) ? "open" : S.approved.has(p.id) ? "ok" : "";
+    const state = S.open.some(c => home(c) === p.id) ? "open" : S.approved.has(p.id) ? "ok" : "";
     const a = el("a", { href: "#p-" + p.id, class: i === cur ? "cur" : "" }, el("span", { class: "dot " + state }),
       el("span", { class: "where" }, where(p)), el("span", { class: "gist" }, gist(p)));
     a.onclick = ev => { ev.preventDefault(); focusCard(i); };
@@ -243,13 +275,15 @@ function lineOf(p, range) {
   return p.start + (frag.textContent.match(/\n/g) || []).length;
 }
 
-function openComposer(card, quote, line) {
+function openComposer(card, quote, line, draft = "") {
   $(".composer", card)?.remove();
   const ta = el("textarea", { placeholder: "Prompt for Claude: what should change, or what to check" });
+  ta.value = draft;
   const save = el("button", { class: "primary" }, "Save");
   const cancel = el("button", {}, "Cancel");
   const box = el("div", { class: "composer" }, quote ? el("blockquote", {}, quote) : null, ta,
     el("div", { class: "row" }, el("span", { class: "hint" }, "⌘/Ctrl+Enter to save · Esc to cancel"), cancel, save));
+  box.meta = { quote, line };
   $(".text", card).after(box);
   ta.focus();
   const p = card.passage;
@@ -274,13 +308,16 @@ function alertIn(box, err) {
 
 async function contextualize(card, quote, line) {
   const p = card.passage;
-  const wait = el("div", { class: "note" }, el("span", { class: "who claude" }, "Context"),
-    el("span", { class: "meta" }, `${info.model} is reading the repo…`), el("blockquote", {}, quote));
-  $(".thread", card).append(wait);
+  const q = { passage: p.id, file: p.file, line, quote };
+  inflight.add(q); renderState();
   try {
-    const e = await api("/api/contextualize", { passage: p.id, file: p.file, line, quote });
-    log.push(e); logLen++; derive(); renderState();
-  } catch (err) { wait.remove(); alertIn($(".thread", card), err); }
+    const e = await api("/api/contextualize", q);
+    inflight.delete(q); log.push(e); logLen++; derive(); renderState();
+  } catch (err) {
+    inflight.delete(q); renderState();
+    const th = $(".thread", document.getElementById("p-" + home(q)) || card);
+    alertIn(th, err);
+  }
 }
 
 // Selection toolbar: appears for a selection inside one passage's text.
@@ -337,22 +374,51 @@ document.addEventListener("keydown", ev => {
 
 $("#only").onchange = ev => $("#doc").classList.toggle("changes-only", ev.target.checked);
 
+// Locate a card after a re-render: by id, or, when its text (and so its id)
+// changed, by its position among the changed passages.
+const findCard = (id, idx) => document.getElementById("p-" + id) || (changed[idx] && document.getElementById("p-" + changed[idx].id));
+
 async function loadDoc() {
-  const keep = cur >= 0 ? changed[cur]?.id : null;
+  // Keep what the reader is doing across the re-render: the card at the top of
+  // the screen and its offset, the focused card, and any comment being written.
+  const cards = [...document.querySelectorAll(".card")];
+  const top = cards.find(c => c.getBoundingClientRect().bottom > 60);
+  const anchor = top && { id: top.passage.id, idx: changed.indexOf(top.passage), y: top.getBoundingClientRect().top };
+  const focus = cur >= 0 && changed[cur] ? { id: changed[cur].id, idx: cur } : null;
+  const drafts = [...document.querySelectorAll(".composer")].map(b => {
+    const ta = $("textarea", b), p = b.closest(".card").passage;
+    return { id: p.id, idx: changed.indexOf(p), ...b.meta, text: ta.value,
+             focused: document.activeElement === ta, sel: [ta.selectionStart, ta.selectionEnd] };
+  });
+  const before = new Set(changed.map(p => p.id));
+
   [doc, log] = await Promise.all([api("/api/doc"), api("/api/log")]);
   const s = await api("/api/state"); version = s.version; logLen = log.length;
   derive(); renderDoc();
-  $("#banner").hidden = true;
-  if (keep) { const i = changed.findIndex(p => p.id === keep); if (i >= 0) focusCard(i); }
-}
-$("#reload").onclick = loadDoc;
 
+  if (before.size) for (const p of changed) if (!before.has(p.id)) document.getElementById("p-" + p.id).classList.add("fresh");
+  if (focus) { const c = findCard(focus.id, focus.idx); if (c) { cur = changed.indexOf(c.passage); c.classList.add("cur"); renderSide(); } }
+  for (const d of drafts) {
+    const c = findCard(d.id, d.idx);
+    if (!c) continue;
+    openComposer(c, d.quote, d.line, d.text);
+    const ta = $(".composer textarea", c);
+    if (d.focused) ta.setSelectionRange(...d.sel); else ta.blur();
+  }
+  if (anchor) { const c = findCard(anchor.id, anchor.idx); if (c) scrollBy(0, c.getBoundingClientRect().top - anchor.y); }
+}
+
+let loading = false;
 async function poll() {
+  if (loading) return;
+  loading = true;
   try {
     const s = await api("/api/state");
-    if (s.log !== logLen) { log = await api("/api/log"); logLen = log.length; derive(); renderState(); }
-    if (s.version !== version) $("#banner").hidden = false;
+    // Wait while text is selected, so the selection toolbar keeps its target.
+    if (s.version !== version && tool.hidden) await loadDoc();
+    else if (s.log !== logLen) { log = await api("/api/log"); logLen = log.length; derive(); renderState(); }
   } catch (_) { /* server restarting: try again next tick */ }
+  loading = false;
 }
 
 (async () => {

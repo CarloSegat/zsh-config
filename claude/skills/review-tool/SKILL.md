@@ -24,7 +24,7 @@ A comment is a prompt from the user, anchored to `file`, `line` and the selected
 
 `python3 ~/.claude/skills/review-tool/review.py reply <id> "<text>"`
 
-The page shows the reply under the comment and offers a reload when the text changed. A comment that needs the user's decision gets a reply with the question; the user answers in a new comment. After a restart, `review.py open` lists comments without a reply.
+The page shows the reply under the comment, with buttons to approve the passage or comment again, and re-renders by itself when the text changes. A comment that needs the user's decision gets a reply with the question; the user answers in a new comment. After a restart, `review.py open` lists comments without a reply.
 
 ## Contextualize
 

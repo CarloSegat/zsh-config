@@ -214,10 +214,10 @@ class PageTest(unittest.TestCase):
         n = len(self.log())
         self.menu(0, 0, "approve")
         time.sleep(1)
-        self.assertEqual(self.types(n), ["approve_hunk"])
-        self.assertEqual(self.buttons(), ["Approve"])
-        self.menu(0, 1, "approve")
-        self.assertEqual(self.committed(n), ["approve_hunk", "approve_hunk", "approve", "commit"])
+        self.assertEqual(self.types(n), ["approve_text"])
+        self.assertEqual([self.buttons(), p.js("changed[0].hs.length")], [["Approve"], 1])
+        self.menu(0, 0, "approve")
+        self.assertEqual(self.committed(n), ["approve_text", "approve_text", "approve", "commit"])
         self.assertEqual(until(lambda: self.buttons()[0].startswith("Committed ")), True)
 
     def test_split_part_approved_from_its_menu_commits(self):
@@ -226,13 +226,12 @@ class PageTest(unittest.TestCase):
         until(lambda: p.js("changed.length") == 2)
         n = len(self.log())
         self.menu(1, 0, "approve")
-        self.assertEqual(self.committed(n), ["approve_hunk", "approve", "commit"])
+        self.assertEqual(self.committed(n), ["approve_text", "approve", "commit"])
         self.assertEqual(until(lambda: self.buttons()[1].startswith("Committed ")), True)
 
     def test_green_passage_without_approve_commits(self):
         p = self.start()
-        for old, new in p.js("changed[0].hs.map(h => [h.old, h.neu])"):
-            self.post({"type": "approve_hunk", "passage": p.js("changed[0].id"), "file": "doc.tex", "line": 5, "old": old, "new": new})
+        self.append({"id": "a1", "type": "approve_text", "file": "doc.tex", "base": "", "text": PARA + "\n\n"})
         p.js("loadDoc(true)")
         self.assertEqual(self.buttons(), ["Commit"])
         n = len(self.log())
@@ -256,8 +255,53 @@ class PageTest(unittest.TestCase):
         self.assertEqual(p.js("window.__asked.startsWith('Withdraw the approval of doc.tex:5–10')"), True)
         p.js("window.__yes = true")
         self.click(0)
-        self.assertEqual(until(lambda: self.types(n)), ["unapprove", "unapprove_hunk"])
+        self.assertEqual(until(lambda: self.types(n)), ["approve_text"])
         self.assertEqual(until(lambda: self.buttons() == ["Approve"]), True)
+
+    def split3(self, p):
+        """Split the inserted paragraph twice, as the page does: parts at lines 5, 6 and 8."""
+        for k in (2, 3):
+            self.click(0, "split")
+            until(lambda: p.js("changed.length") == k)
+        self.assertEqual(p.js("changed.map(p => [p.start, p.end])"), [[5, 5], [6, 7], [8, 10]])
+
+    def test_green_split_part_commits_alone(self):
+        p = self.start()
+        self.split3(p)
+        self.append({"id": "a1", "type": "approve_text", "file": "doc.tex", "base": "", "text": PARA + "\n\n"})
+        self.assertEqual(until(lambda: self.buttons() == ["Commit"] * 3 and self.buttons()), ["Commit"] * 3)
+        n = len(self.log())
+        self.click(2)
+        self.assertEqual(self.committed(n), ["approve", "commit"])
+        self.assertEqual(until(lambda: self.buttons()[2].startswith("Committed ") and self.buttons()[:2]), ["Commit", "Commit"])
+
+    def test_approve_edit_on_split_parts(self):
+        p = self.start()
+        self.split3(p)
+        p.js("document.querySelectorAll('.card')[1].querySelector('.hunk').click()")
+        self.assertEqual(p.js("$('#hmenu [data-h=approve_edit]').textContent"), "Approve edit (3)")
+        n = len(self.log())
+        p.js("$('#hmenu [data-h=approve_edit]').click()")
+        until(lambda: self.types(n).count("commit") == 3)
+        self.assertEqual(sorted(self.types(n)), ["approve"] * 3 + ["approve_text"] + ["commit"] * 3)
+        self.assertEqual([e["text"] for e in self.log() if e["type"] == "approve_text"], [PARA + "\n\n"])
+        self.assertEqual(self.git("show", "HEAD:doc.tex"), WORK)
+
+    def test_withdrawing_a_split_part(self):
+        p = self.start()
+        self.split3(p)
+        n = len(self.log())
+        self.click(2)
+        self.assertEqual(self.committed(n), ["approve_text", "approve", "commit"])
+        until(lambda: self.buttons()[2].startswith("Committed "))
+        self.assertEqual(self.buttons()[:2], ["Approve", "Approve"])
+        p.js("window.confirm = m => (window.__asked = m, true)")
+        n = len(self.log())
+        self.click(2)
+        self.assertEqual(until(lambda: self.types(n)), ["approve_text"])
+        self.assertEqual(until(lambda: self.buttons() == ["Approve"] * 3), True)
+        self.assertEqual(p.js("window.__asked"), "Withdraw the approval of doc.tex:8–10 and of its changes, "
+                                                 "with the other 2 parts of its passage? Its commit stays.")
 
     # Bug 2: one approval per action, however fast the clicks or keys come.
 
@@ -270,12 +314,12 @@ class PageTest(unittest.TestCase):
         self.assertEqual(self.types(0), ["edit"])
         p.js("(async () => { const b = $('.card [data-act=approve]'); b.click(); await new Promise(r => setTimeout(r, 120)); b.click(); })()")
         time.sleep(2)
-        self.assertEqual(self.types(0), ["edit", "approve_hunk", "approve", "commit"])
+        self.assertEqual(self.types(0), ["edit", "approve_text", "approve", "commit"])
 
         p = self.start()
         self.assertEqual(p.js("(() => { const b = $('.card [data-act=approve]'); b.click(); const off = b.disabled; b.click(); return off; })()"), True)
         time.sleep(2)
-        self.assertEqual(self.types(0), ["edit", "approve_hunk", "approve", "commit"])
+        self.assertEqual(self.types(0), ["edit", "approve_text", "approve", "commit"])
 
     # Bug 3: drafts and focus survive re-renders; nothing sends twice.
 
@@ -376,14 +420,16 @@ class PageTest(unittest.TestCase):
         base = BASE + "\nRevoked credentials are stored.\n\nEvery verifier checks them.\n"
         p = self.start(base, base.replace("are stored.", "are stored in the registry.")
                        .replace("checks them.", "checks them in the registry of record."))
-        self.menu(0, 0, "approve")       # card 1 now shows its change since that approved text
-        want = [["=", "Every verifier checks them"], ["=", " in the registry"], ["+", " of record", 0], ["=", "."]]
-        self.assertEqual(until(lambda: p.js("changed[1].segs") == want and want, 5), want)
+        self.append({"id": "a1", "type": "approve_text", "file": "doc.tex", "base": "Revoked credentials are stored.",
+                     "text": "Revoked credentials are stored in the registry."})   # from another tab
+        want = [[["=", "Revoked credentials are stored in the registry."]],
+                [["=", "Every verifier checks them"], ["+", " in the registry of record"], ["=", "."]]]
+        self.assertEqual(until(lambda: p.js("changed.map(p => p.segs)") == want and want, 5), want)
 
     def test_commit_shows_when_a_poll_synced_the_approve_first(self):
         go = TMP / f"go-{os.getpid()}"
         p = self.start(check=f"while [ ! -f {go} ]; do sleep 0.05; done")
-        p.js(HOLD % (POSTED % "approve"))
+        p.js(HOLD % "u === '/api/approve'")
         self.addCleanup(go.unlink, missing_ok=True)
         self.click(0)
         until(lambda: p.js("!!window.__held") and len(self.log()) == 3 and p.js("log.length") == 3)   # a poll fetched the approve

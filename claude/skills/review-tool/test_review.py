@@ -297,6 +297,160 @@ class Worker(Case):
         self.assertIs(self.run_answer(rv, failed, lambda: None), False)
 
 
+# A paragraph inserted between 2 kept ones: 1 passage of 1 hunk, base text "".
+L = ["Membership changes go through the governance group vote and take effect at once.",
+     "A member that leaves loses its rights immediately after the vote closes.",
+     "Revocation proper removes a credential from the registry for every verifier.",
+     "It applies to credentials that the group itself issued in the past.",
+     "By design the registry keeps a record of every revoked credential forever.",
+     "Verifiers read that record before accepting any credential at all."]
+kept = lambda x: "\\section{Intro}\n\nAlpha paragraph stays the same here.\n\n" + x + "Omega paragraph also stays.\n"
+P1, P2, P3 = L[0] + "\n", L[1] + "\n" + L[2] + "\n", "\n".join(L[3:]) + "\n\n"
+
+
+class Approvals(Case):
+    """An approval is the text approved for a passage, kept by the server."""
+
+    def ok(self, rv, *ps, ks="all"):
+        """Approve hunks ks of passages ps as the page does: with the hunks it shows."""
+        items = []
+        for p in ps:
+            hs = review.hunks(p["segs"])
+            seen = [list(hs[k][2:]) for k in (range(len(hs)) if ks == "all" else ks)]
+            items.append({"file": p["file"], "passage": p["id"], "hunks": ks, "seen": seen})
+        return rv.approve(items)
+
+    def segs(self, rv):
+        return [[s[:2] for s in p["segs"]] for p in self.changed(rv)]
+
+    def texts(self, rv):
+        return [e["text"] for e in rv.log() if e["type"] == "approve_text"]
+
+    def three_parts(self):
+        """The inserted paragraph split as the page splits it twice: P1, P2, P3."""
+        rv = self.make(kept(""), kept("\n".join(L) + "\n\n"))
+        for _ in range(2):
+            p = self.changed(rv)[0]
+            line, text = page_split(p)
+            rv.append({"type": "split", "passage": p["id"], "file": "f.tex", "line": line, "text": text})
+        self.assertEqual(self.segs(rv), [[["+", P1]], [["+", P2]], [["+", P3]]])
+        return rv
+
+    def test_identical_hunks_approve_apart(self):
+        rv = self.make("The group votes on members.\n\nA group may revoke keys.\n",
+                       "The governance group votes on members.\n\nA governance group may revoke keys.\n")
+        self.ok(rv, self.changed(rv)[0])
+        self.assertEqual(self.segs(rv), [[["=", "The governance group votes on members."]],
+                                         [["=", "A"], ["+", " governance"], ["=", " group may revoke keys."]]])
+        self.ok(rv, self.changed(rv)[1])
+        rv.withdraw({"file": "f.tex", "passage": self.changed(rv)[0]["id"]})
+        self.assertEqual(self.segs(rv), [[["=", "The"], ["+", " governance"], ["=", " group votes on members."]],
+                                         [["=", "A governance group may revoke keys."]]])
+
+    def test_insertion_approval_stays_in_its_paragraph(self):
+        base = "The contract checks the vote.\n\nUnrelated middle paragraph.\n\nThe registry stores the key.\n"
+        work = base.replace("vote.", "vote, as shown in Section 5 of the paper.") \
+            .replace("key.", "key, as shown in Section 6 of the paper.")
+        rv = self.make(base, work)
+        self.ok(rv, self.changed(rv)[0])
+        self.assertEqual(self.segs(rv)[1], [["=", "The registry stores the key"],
+                                            ["+", ", as shown in Section 6 of the paper"], ["=", "."]])
+        self.assertEqual(self.revert(rv, self.changed(rv)[1]),
+                         "The contract checks the vote, as shown in Section 5 of the paper.\n\n"
+                         "Unrelated middle paragraph.\n\nThe registry stores the key.\n")
+
+    def test_approving_one_insertion_keeps_another(self):
+        base = "Revoked credentials are stored.\n\nEvery verifier checks them.\n"
+        rv = self.make(base, base.replace("are stored.", "are stored in the registry.")
+                       .replace("checks them.", "checks them in the registry of record."))
+        self.ok(rv, self.changed(rv)[0])
+        self.ok(rv, self.changed(rv)[1])
+        self.assertEqual(self.segs(rv), [[["=", "Revoked credentials are stored in the registry."]],
+                                         [["=", "Every verifier checks them in the registry of record."]]])
+        self.assertEqual(self.texts(rv), ["Revoked credentials are stored in the registry.",
+                                          "Every verifier checks them in the registry of record."])
+
+    def test_new_paragraphs_keep_their_own_approval(self):
+        base, work = "Keep A.\n\nKeep D.\n", "Keep A.\n\nNew B in the registry.\n\nKeep D.\n\nNew E in the registry of record.\n"
+        rv = self.make(base, work)
+        self.ok(rv, self.changed(rv)[0])
+        self.assertEqual(self.segs(rv), [[["=", "New B in the registry.\n\n"]], [["+", "\nNew E in the registry of record.\n"]]])
+        self.ok(rv, self.changed(rv)[1])
+        (rv.repo / "f.tex").write_text(work.replace("New B in", "New B kept in"))
+        self.assertEqual(self.segs(rv), [[["=", "New B"], ["+", " kept"], ["=", " in the registry.\n\n"]],
+                                         [["=", "\nNew E in the registry of record.\n"]]])
+
+    def test_split_insertion_approves_in_order(self):
+        rv = self.make("Intro.\n", "Intro.\nNew line one.\nNew line two.\n")
+        (p,) = self.changed(rv)
+        rv.append({"type": "split", "passage": p["id"], "file": "f.tex", "line": 3, "text": "New line two."})
+        es = self.ok(rv, *self.changed(rv))
+        self.assertEqual([e["type"] for e in es], ["approve_text", "approve", "approve"])
+        self.assertEqual(self.texts(rv), ["Intro.\nNew line one.\nNew line two."])
+        self.assertEqual(self.segs(rv), [[["=", "Intro.\nNew line one.\n"]], [["=", "New line two."]]])
+        for e in es[1:]:
+            self.assertIn("sha", rv.commit(e))
+        self.assertEqual(self.head(rv), "Intro.\nNew line one.\nNew line two.\n")
+
+    def test_each_part_approves_in_one_click(self):
+        rv = self.three_parts()
+        for k, want in ((2, [[["+", P1]], [["+", P2]], [["=", P3]]]),
+                        (0, [[["=", P1]], [["+", P2]], [["=", P3]]]),
+                        (1, [[["=", P1]], [["=", P2]], [["=", P3]]])):
+            self.ok(rv, self.changed(rv)[k])
+            self.assertEqual(self.segs(rv), want)
+        self.assertEqual(self.texts(rv), [P3, P1 + P3, P1 + P2 + P3])
+
+    def test_withdraw_resets_the_whole_passage(self):
+        rv = self.three_parts()
+        (e,) = [e for e in self.ok(rv, self.changed(rv)[2]) if e["type"] == "approve"]
+        self.assertIn("sha", rv.commit(e))
+        self.assertEqual([p["dirty"] for p in self.changed(rv)], [True, True, False])
+        rv.withdraw({"file": "f.tex", "passage": self.changed(rv)[2]["id"]})
+        self.assertEqual(self.texts(rv), [P3, ""])
+        self.assertEqual(self.segs(rv), [[["+", P1]], [["+", P2]], [["+", P3]]])
+
+    def test_part_of_a_rewritten_paragraph_approves(self):
+        old = "\n".join(f"Zebras graze quietly beside rivers during warm seasons, watching predators {i}." for i in range(6))
+        rv = self.make(kept(old + "\n\n"), kept("\n".join(L) + "\n\n"))
+        p = self.changed(rv)[0]
+        rv.append({"type": "split", "passage": p["id"], "file": "f.tex", "line": 8, "text": L[3]})
+        self.ok(rv, self.changed(rv)[1])
+        self.assertEqual(self.segs(rv), [[["-", old[:-1]], ["+", P1 + P2]], [["=", "\n".join(L[3:])]]])
+        self.ok(rv, self.changed(rv)[0])
+        self.assertEqual(self.segs(rv), [[["=", P1 + P2]], [["=", "\n".join(L[3:])]]])
+
+    def test_short_part_approves(self):
+        fill = [f"Filler sentence number {i} keeps this paragraph long enough for the test." for i in range(8)]
+        rv = self.make(kept(""), kept("\n".join(L + ["Ok."] + fill) + "\n\n"))
+        p = self.changed(rv)[0]
+        for line, text in ((11, "Ok."), (12, fill[0])):
+            rv.append({"type": "split", "passage": p["id"], "file": "f.tex", "line": line, "text": text})
+        self.ok(rv, self.changed(rv)[1])
+        self.assertEqual([len(review.hunks(p["segs"])) for p in self.changed(rv)], [1, 0, 1])
+        self.assertEqual(self.segs(rv)[1], [["=", "Ok.\n"]])
+
+    def test_approve_refuses_hunks_the_page_did_not_see(self):
+        rv = self.make("Alpha one.\n\nBeta two.\n", "Alpha ONE.\n\nBeta TWO.\n")
+        p = self.changed(rv)[0]
+        with self.assertRaises(LookupError):
+            rv.approve({"file": "f.tex", "passage": p["id"], "hunks": [0], "seen": [["one", "TWO"]]})
+        self.ok(rv, p)
+        with self.assertRaises(LookupError):
+            self.ok(rv, p)
+        self.assertEqual(self.texts(rv), ["Alpha ONE."])
+
+    def test_hunks_of_one_edit_share_its_id(self):
+        rv = self.three_parts()
+        rv.doc()
+        (e,) = [e for e in rv.log() if e["type"] == "edit"]
+        self.assertEqual([p["edits"] for p in self.changed(rv)], [[e["id"]]] * 3)
+        (rv.repo / "f.tex").write_text(rv.text("f.tex").replace("Omega", "Omega, edited,"))
+        rv.doc()
+        e2 = [e for e in rv.log() if e["type"] == "edit"][-1]
+        self.assertEqual([p["edits"] for p in self.changed(rv)], [[e["id"]]] * 3 + [[e2["id"]]])
+
+
 class Server(Case):
     def request(self, rv, close):
         """GET /api/state on a socket pair; close: the page drops the request first."""
@@ -445,6 +599,40 @@ class Invariants(unittest.TestCase):
                 head = commit(head, work, base, splits, pid)
                 done.add(pid)
             self.assertEqual(head, work, (base, work, splits))
+
+    def test_approving_a_part_clears_it_and_keeps_the_others(self):
+        """Approving some hunks of a part, again and again, ends with no hunk
+        anywhere. A part approved whole shows no hunk, and once its passage has
+        an approved text, approving one part leaves the others as they were."""
+        rng = random.Random(4)
+        for _ in range(300):
+            base, work, splits = edit(rng)
+            log = splits[:]
+            for e in log:
+                e["id"] = f"s{id(e)}"
+            rv = object.__new__(review.Review)
+            rv.log = lambda: log
+            for _ in range(40):
+                splits_, records, _ = rv.state("f.tex")
+                shown, _ = review.view("f.tex", base, base, work, splits_, records)
+                todo = [p for p in shown if review.hunks(p["segs"])]
+                if not todo:
+                    break
+                p = rng.choice(todo)
+                n = len(review.hunks(p["segs"]))
+                ks = set(range(n)) if rng.random() < .5 else set(rng.sample(range(n), rng.randint(1, n)))
+                for e in review.approve_texts(shown, {p["id"]: ks}, {r["id"]: r["text"] for r in records}):
+                    log.append({**e, "id": f"a{len(log)}"})
+                after, _ = review.view("f.tex", base, base, work, *rv.state("f.tex")[:2])
+                ctx = (base, work, splits, p["id"], ks)
+                self.assertEqual([q["id"] for q in after], [q["id"] for q in shown], ctx)
+                for q, r in zip(shown, after):
+                    if q is p and len(ks) == n:
+                        self.assertEqual(review.hunks(r["segs"]), [], ctx)
+                    elif q is not p and (q["unit"] != p["unit"] or p["rec"]):
+                        self.assertEqual(r["segs"], q["segs"], ctx)
+            else:
+                self.fail(("no end", base, work, splits))
 
     def test_commit_keeps_lines_outside_the_passage(self):
         """Unique lines: a passage's commit adds the new lines it shows and no

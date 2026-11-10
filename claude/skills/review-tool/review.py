@@ -628,7 +628,8 @@ class Review:
                                 "removed": new, "restored": old})
 
     def claude(self, prompt, tools, model=MODEL):
-        """Run claude -p in the repo on the Keychain API key; return its result event."""
+        """Run claude -p in the repo on the Keychain API key; return its result
+        event, with "edits", the files its tool calls changed."""
         key = api_key()
         if not key:
             raise RuntimeError(f"No API key in the Keychain (service {KEYCHAIN_SERVICE}).")
@@ -648,7 +649,7 @@ class Review:
             raise RuntimeError(f"claude -p did not use the API key (apiKeySource={init.get('apiKeySource')}).")
         if not result or result.get("is_error"):
             raise RuntimeError((result or {}).get("result") or r.stderr[-500:] or "claude -p failed")
-        return result
+        return {**result, "edits": edits(events)}
 
     def contextualize(self, body):
         result = self.claude(f"/contextualize {body['quote']}\n\n(It is in {body['file']}, near line {body['line']}.)",
@@ -749,18 +750,19 @@ class Review:
         return self.append({**at, "sha": sha, "message": msg, "cost": cost, "model": MODEL if cost else None})
 
     def answer(self, c):
-        before, model = self.version(), c.get("model", MODEL)
+        model, edited = c.get("model", MODEL), set()
         try:
             r = self.claude(COMMENT_PROMPT.format(file=c["file"], line=c["line"], text=c["text"],
                                                   quote=c.get("quote") or "(none: the whole passage)"), EDIT_TOOLS, model)
             text, cost = r["result"], r.get("total_cost_usd")
+            edited = {(self.repo / f).resolve() for f in r["edits"]}
         except Exception as e:
             text, cost = f"Failed: {e}", None
-        # edited: whether a reviewed file changed; the page keeps showing the
-        # comment when it did not (a question, a refusal, a failure).
+        # edited: whether the answer itself changed a reviewed file; the page
+        # keeps showing the comment when it did not (a question, a refusal, a failure).
         self.track()
-        self.append({"type": "reply", "to": c["id"], "text": text, "edited": self.version() != before,
-                     "cost": cost, "model": model})
+        self.append({"type": "reply", "to": c["id"], "text": text, "cost": cost, "model": model,
+                     "edited": any((self.repo / p).resolve() in edited for p in self.files)})
 
 
 def bib_field(entry, name):
@@ -813,6 +815,21 @@ def refs(repo):
         for m in re.finditer(r"\\newlabel\{([^}]*)\}\{\{([^}]*)\}", f.read_text(errors="replace")):
             labels.setdefault(m.group(1), m.group(2))
     return {"cites": cites, "labels": labels}
+
+
+def edits(events):
+    """The file_path of each file tool call in claude -p's stream-json events
+    that did not fail."""
+    calls, failed = {}, set()
+    for e in events:
+        for b in (e.get("message") or {}).get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("name") in ("Edit", "MultiEdit", "Write"):
+                calls[b.get("id")] = (b.get("input") or {}).get("file_path")
+            elif b.get("type") == "tool_result" and b.get("is_error"):
+                failed.add(b.get("tool_use_id"))
+    return sorted({f for i, f in calls.items() if f and i not in failed})
 
 
 def api_key():

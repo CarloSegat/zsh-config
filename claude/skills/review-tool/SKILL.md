@@ -22,7 +22,7 @@ Arguments: $ARGUMENTS
 
 ## Act on each comment
 
-With an API key the server does this step: each comment goes, one at a time, to `claude -p` in the repo on the model its send button names (`claude-sonnet-5-5`, the default, or `claude-opus-5-5`), with Read, Grep, Glob and Edit inside the repo, no shell, and the repo's CLAUDE.md rules. Its answer is logged as the reply, with its cost and `edited` (whether a reviewed file changed). Comments a stopped server left open run when it starts. Without a key:
+With an API key the server does this step: each comment goes, one at a time, to `claude -p` in the repo on the model its send button names (`claude-sonnet-5-5`, the default, or `claude-opus-5-5`), with Read, Grep, Glob and Edit inside the repo, no shell, and the repo's CLAUDE.md rules. Its answer is logged as the reply, with its cost and `edited` (whether one of its own Edit calls succeeded on a reviewed file). Comments a stopped server left open run when it starts. Without a key:
 
 A comment is a prompt from the user, anchored to `file`, `line` and the selected `quote` (empty when the whole passage is meant). Do what it asks under the repo's rules (wording, asking before deleting, committing only when told). Then answer it, in 1 to 3 sentences, saying what changed or why nothing did:
 

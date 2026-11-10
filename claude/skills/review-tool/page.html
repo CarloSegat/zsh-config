@@ -87,6 +87,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .note .body { white-space: pre-wrap; }
 .note.reply { margin-left: 18px; }
 .note.reply button { margin-top: 6px; }
+.card > .err { border-top: 1px solid var(--line); padding: 6px 14px; }
 .composer { border-top: 1px solid var(--line); padding: 10px 14px; display: grid; gap: 8px; }
 .composer textarea { width: 100%; min-height: 70px; font: 14px/1.45 var(--ui); padding: 6px 8px; border: 1px solid var(--line);
   border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
@@ -322,10 +323,12 @@ function renderState() {
     const ok = pOk(p), cm = S.commits[p.id];
     card.classList.toggle("ok", ok);
     const b = $('[data-act="approve"]', card);
-    // Approving a passage commits its uncommitted edits (review.py commit()).
-    b.textContent = !ok ? "Approve" : cm?.sha ? `Committed ${cm.sha}` : cm?.skipped ? "Already committed"
-      : S.approved.has(p.id) && !cm ? "Committing…" : "Approved";
+    // Approving a passage commits its uncommitted edits (review.py commit()); one whose
+    // changes were all approved one by one is not approved as a whole yet: it commits.
+    b.textContent = !ok ? "Approve" : !S.approved.has(p.id) ? "Commit" : cm?.sha ? `Committed ${cm.sha}`
+      : cm?.skipped ? "Already committed" : !cm ? "Committing…" : "Approved";
     b.classList.toggle("approved", ok);
+    b.disabled = busy;
     card.classList.toggle("done", !!(ok && (cm?.sha || cm?.skipped)));   // committed: collapsed to its head
     if (cm?.error && S.approved.has(p.id)) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
     for (const h of p.hs) {
@@ -416,7 +419,18 @@ function openComposer(card, quote, line, draft = "") {
 }
 
 function alertIn(box, err) {
-  box.append(el("div", { class: "note" }, el("span", { class: "who" }, "Error"), String(err.message || err)));
+  box.append(el("div", { class: "note err" }, el("span", { class: "who" }, "Error"), String(err.message || err)));
+}
+
+// One action's requests at a time: a click or key press while one runs is dropped, and
+// the approve buttons are disabled. A failure shows on the card.
+let busy = false;
+async function run(card, f) {
+  hideMenu();
+  if (busy) return;
+  busy = true; $(":scope > .err", card)?.remove(); renderState();
+  try { await f(); } catch (err) { alertIn(document.getElementById(card.id) || card, err); }
+  busy = false; renderState();
 }
 
 async function contextualize(card, quote, line) {
@@ -552,7 +566,6 @@ function openMenu(h) {
   const ae = $('[data-h="approve_edit"]', hmenu);
   ae.hidden = open.length < 2;
   ae.textContent = `Approve edit (${open.length})`;
-  $('[data-h="revert"]', hmenu).disabled = false;
   const rs = h.getClientRects(), r = rs[rs.length - 1];
   hmenu.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 240)) + "px";
   hmenu.style.top = (r.bottom + scrollY + 6) + "px";
@@ -562,33 +575,30 @@ function openMenu(h) {
 function add(e) { if (!log.some(x => x.id === e.id)) log.push(e); derive(); }
 async function post(e) { add(await api("/api/log", e)); }
 hmenu.addEventListener("mousedown", ev => ev.preventDefault());
-hmenu.addEventListener("click", async ev => {
+hmenu.addEventListener("click", ev => {
   const act = ev.target.dataset.h, h = menuFor;
   if (!act || !h) return;
-  const card = h.closest(".card"), p = card.passage, at = { passage: p.id, file: p.file, line: p.start };
+  const card = h.closest(".card"), p = card.passage;
   if (act === "comment") {
     hideMenu();
     const r = document.createRange(); r.setStart(h, 0);
     return openComposer(card, h.neu.trim() || "deleted: " + h.old.trim(), lineOf(p, r));
   }
-  if (act === "approve_edit" || act === "approve") {
-    const reload = await approveAll(act === "approve" ? [h] : editMates(h));
-    hideMenu(); return reload ? loadDoc(true) : renderState();
-  }
-  if (act === "revert") {
-    ev.target.disabled = true;
-    try {
-      await api("/api/revert", { passage: p.id, file: p.file, hunk: h.k });
-      hideMenu(); await loadDoc(true);
-    } catch (err) { hideMenu(); alertIn($(".thread", card), err); if (/changed/.test(err.message)) loadDoc(true); }
-  }
+  // A refusal (the passage changed) shows until the poll reloads the doc.
+  if (act === "revert") return run(card, async () => { await api("/api/revert", { passage: p.id, file: p.file, hunk: h.k }); await loadDoc(true); });
+  run(card, async () => {
+    const hs = act === "approve" ? [h] : editMates(h), ids = new Set(hs.map(x => x.closest(".card").passage.id));
+    if (await approveAll(hs)) await loadDoc(true);
+    // A passage left with no open change is approved whole, which commits it.
+    for (const q of changed) if (ids.has(q.id) && pOk(q) && !S.approved.has(q.id)) await post({ type: "approve", passage: q.id, file: q.file, line: q.start });
+  });
 });
 document.addEventListener("keydown", ev => {
   if (ev.key !== "Escape" || ev.target.closest("textarea")) return;
   hideMenu(); tool.hidden = true; pending = null; getSelection().removeAllRanges();
 });
 
-$("#doc").addEventListener("click", async ev => {
+$("#doc").addEventListener("click", ev => {
   const h = ev.target.closest(".hunk");
   if (h && !h.classList.contains("ok") && getSelection().isCollapsed) return openMenu(h);
   const done = ev.target.closest(".card.done");
@@ -598,13 +608,14 @@ $("#doc").addEventListener("click", async ev => {
   if (!act || !card) return;
   const p = card.passage;
   if (act === "note") openComposer(card, "", p.start);
-  if (act === "dismiss") { await post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }); renderState(); }
-  if (act === "approve") {
-    if (pOk(p)) { await unapprove(p); return renderState(); }
+  if (act === "dismiss") run(card, () => post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }));
+  if (act === "approve") run(card, async () => {
+    // Withdrawing clears the approvals of the passage and of its changes: never on a stray click.
+    if (S.approved.has(p.id)) return confirm(`Withdraw the approval of ${where(p)} and of its changes? Its commit stays.`) && unapprove(p);
     const reload = await approveAll(p.hs);
     await post({ type: "approve", passage: p.id, file: p.file, line: p.start });
-    reload ? loadDoc(true) : renderState();
-  }
+    if (reload) await loadDoc(true);
+  });
   if (act === "split") {
     // At the line start nearest the middle of the passage's text.
     const lines = newText(p).split("\n"), half = newText(p).length / 2;
@@ -613,18 +624,20 @@ $("#doc").addEventListener("click", async ev => {
       if (k && l.trim() && (!best || Math.abs(at - half) < Math.abs(best[1] - half))) best = [k, at];
       at += l.length + 1;
     });
-    if (!best) return;
-    await post({ type: "split", passage: p.id, file: p.file, line: p.start + best[0], text: lines[best[0]] });
-    loadDoc(true);
+    if (best) run(card, async () => {
+      await post({ type: "split", passage: p.id, file: p.file, line: p.start + best[0], text: lines[best[0]] });
+      await loadDoc(true);
+    });
   }
 });
 
 document.addEventListener("keydown", ev => {
-  if (ev.target.closest("textarea, input") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (ev.repeat || ev.target.closest("textarea, input") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
   if (ev.key === "j") focusCard(cur + 1);
   if (ev.key === "k") focusCard(Math.max(0, cur - 1));
   const card = cur >= 0 && document.getElementById("p-" + changed[cur]?.id);
-  if (ev.key === "a" && card) $('[data-act="approve"]', card).click();
+  // a approves or commits; withdrawing is the button's alone.
+  if (ev.key === "a" && card && !S.approved.has(changed[cur].id)) $('[data-act="approve"]', card).click();
   if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", changed[cur].start); }
 });
 

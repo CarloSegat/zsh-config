@@ -187,6 +187,8 @@ class Review:
         self.log_path = self.dir / "log.jsonl"
         self.log_path.touch()
         self.lock = threading.Lock()
+        self.track_lock = threading.Lock()
+        self.seen = {}   # path -> (text, hunk keys) at the last look, for track()
         self.queue = queue.Queue()   # comments and approvals, handled one at a time
         self.agent = False           # comments go to claude -p (there is an API key)
 
@@ -199,7 +201,31 @@ class Review:
         return r.stdout if r.returncode == 0 else ""
 
     def doc(self):
+        self.track()
         return {"files": [{"path": p, "passages": passages(p, self.old_text(p), self.text(p))} for p in self.files]}
+
+    def keys(self, path, text):
+        return {(h[2], h[3]) for p in passages(path, self.old_text(path), text) if p["kind"] == "changed"
+                for h in hunks(p["segs"])}
+
+    def track(self):
+        """Log the hunks each change to a reviewed file introduced, as one edit the
+        page can approve in one click. Before the first look, the file is taken as
+        it was at HEAD, so the uncommitted changes form the first edit."""
+        with self.track_lock:
+            for path in self.files:
+                text = self.text(path)
+                if path not in self.seen:
+                    head = git(self.repo, "show", f"HEAD:{path}")
+                    head_text = head.stdout if head.returncode == 0 else ""
+                    self.seen[path] = (head_text, self.keys(path, head_text))
+                if self.seen[path][0] == text:
+                    continue
+                keys = self.keys(path, text)
+                new = keys - self.seen[path][1]
+                if new:
+                    self.append({"type": "edit", "file": path, "hunks": sorted(map(list, new))})
+                self.seen[path] = (text, keys)
 
     def version(self):
         h = hashlib.sha1(self.base.encode())
@@ -357,6 +383,7 @@ class Review:
             text, cost = f"Failed: {e}", None
         # edited: whether a reviewed file changed; the page keeps showing the
         # comment when it did not (a question, a refusal, a failure).
+        self.track()
         self.append({"type": "reply", "to": c["id"], "text": text, "edited": self.version() != before,
                      "cost": cost, "model": MODEL})
 

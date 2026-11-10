@@ -122,6 +122,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 3px;
   <button data-act="context" id="ctxbtn">Contextualize</button>
 </div>
 <div id="hmenu" hidden>
+  <button data-h="approve_edit" class="primary">Approve edit</button>
   <button data-h="approve">Approve</button>
   <button data-h="revert">Revert</button>
   <button data-h="comment">Comment</button>
@@ -148,7 +149,7 @@ let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
 
 function derive() {
-  S = { approved: new Set(), hunks: new Set(), comments: [], replies: {}, dismissed: new Set(), commits: {}, contexts: [], spent: 0, open: [], asked: [] };
+  S = { approved: new Set(), hunks: new Set(), comments: [], replies: {}, dismissed: new Set(), commits: {}, editOf: {}, contexts: [], spent: 0, open: [], asked: [] };
   for (const e of log) {
     if (e.type === "approve") S.approved.add(e.passage);
     if (e.type === "unapprove") S.approved.delete(e.passage);
@@ -158,6 +159,8 @@ function derive() {
     if (e.type === "comment") S.comments.push(e);
     if (e.type === "reply") { (S.replies[e.to] ||= []).push(e); S.spent += e.cost || 0; }
     if (e.type === "dismiss") S.dismissed.add(e.to);
+    // An edit's hunks; a hunk belongs to the latest edit that produced it.
+    if (e.type === "edit") for (const [o, n] of e.hunks) S.editOf[hkey(e.file, o, n)] = e.id;
     if (e.type === "commit") { S.commits[e.passage] = e; S.spent += e.cost || 0; }
     if (e.type === "context") { S.contexts.push(e); S.spent += e.cost || 0; }
   }
@@ -432,12 +435,27 @@ async function unapprove(p, keep = []) {
   }
   for (const h of p.hs) if (!keep.includes(h) && hOk(p, h)) await post({ ...at, type: "unapprove_hunk", old: h.old, new: h.neu });
 }
-function hideMenu() { hmenu.hidden = true; menuFor?.classList.remove("on"); menuFor = null; }
+function hideMenu() { hmenu.hidden = true; document.querySelectorAll(".hunk.on").forEach(x => x.classList.remove("on")); menuFor = null; }
+// The hunks on the page that came from the same edit as h.
+function editMates(h) {
+  const p = h.closest(".card").passage, id = S.editOf[hkey(p.file, h.old, h.neu)];
+  if (!id) return [h];
+  return [...document.querySelectorAll(".hunk")].filter(x => {
+    const q = x.closest(".card").passage;
+    return S.editOf[hkey(q.file, x.old, x.neu)] === id;
+  });
+}
 function openMenu(h) {
   hideMenu();
   tool.hidden = true; pending = null;
-  menuFor = h; h.classList.add("on");
+  menuFor = h;
   const p = h.closest(".card").passage, ok = hunkOk(p, h);
+  // Outline the whole edit this hunk came from; one click approves all of it.
+  const mates = editMates(h), open = mates.filter(x => !hunkOk(x.closest(".card").passage, x));
+  mates.forEach(x => x.classList.add("on"));
+  const ae = $('[data-h="approve_edit"]', hmenu);
+  ae.hidden = open.length < 2;
+  ae.textContent = `Approve edit (${open.length})`;
   const b = $('[data-h="approve"]', hmenu);
   b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
   $('[data-h="revert"]', hmenu).disabled = false;
@@ -456,6 +474,13 @@ hmenu.addEventListener("click", async ev => {
     hideMenu();
     const r = document.createRange(); r.setStart(h, 0);
     return openComposer(card, h.neu.trim() || "deleted: " + h.old.trim(), lineOf(p, r));
+  }
+  if (act === "approve_edit") {
+    for (const x of editMates(h)) {
+      const q = x.closest(".card").passage;
+      if (!hunkOk(q, x)) await post({ passage: q.id, file: q.file, line: q.start, type: "approve_hunk", old: x.old, new: x.neu });
+    }
+    hideMenu(); return renderState();
   }
   if (act === "approve") {
     if (!hunkOk(p, h)) await post({ ...at, type: "approve_hunk", old: h.old, new: h.neu });
@@ -516,7 +541,8 @@ const selecting = () => {
 };
 
 async function loadDoc(force = false) {
-  const [d, l, s] = await Promise.all([api("/api/doc"), api("/api/log"), api("/api/state")]);
+  const d = await api("/api/doc");   // first: it logs the edits the log must then include
+  const [l, s] = await Promise.all([api("/api/log"), api("/api/state")]);
   if (!force && selecting()) return;   // try again at the next poll
   // Keep what the reader is doing across the re-render: the card at the top of
   // the screen and its offset, the focused card, and any comment being written.

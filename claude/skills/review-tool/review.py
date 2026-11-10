@@ -684,21 +684,30 @@ class Review:
                 self.append({"type": "commit", "passage": e.get("passage"), "file": e.get("file"),
                              "line": e.get("line"), "error": str(err)})
 
-    def commit(self, e):
-        """Commit the uncommitted edits inside an approved passage, and nothing else."""
-        path, at = e["file"], {"type": "commit", "passage": e["passage"], "file": e["file"], "line": e["line"]}
+    def stage(self, path, pid):
+        """The shown passage pid, what its commit makes of the file at HEAD,
+        HEAD's text and HEAD."""
         with self.edit:
-            shown, ours, head = self.view(path)
-            p = next((p for p in shown if p["id"] == e["passage"]), None)
-            if p:   # the changes from HEAD in the passage's place
-                text = staged(head, [u for u in ours if u["kind"] == "changed" and u["key"] == p["key"]])
-        if not p:
-            return self.append({**at, "error": "the passage changed after it was approved"})
-        if git(self.repo, "diff", "--cached", "--quiet").returncode:
-            return self.append({**at, "error": "other changes are staged; commit or unstage them first"})
-        if text == head:
-            return self.append({**at, "skipped": "nothing uncommitted in the passage"})
-        if self.check:
+            sha = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+            shown, ours, head = self.view(path, sha)
+            p = next((p for p in shown if p["id"] == pid), None)
+            ps = [u for u in ours if p and u["kind"] == "changed" and u["key"] == p["key"]]
+            return p, staged(head, ps), head, sha
+
+    def commit(self, e):
+        """Commit the uncommitted edits inside an approved passage, and nothing
+        else, on the HEAD they were computed from."""
+        path, at = e["file"], {"type": "commit", "passage": e["passage"], "file": e["file"], "line": e["line"]}
+        for checked in (False, True):   # again after the check, which may take long
+            p, text, head, sha = self.stage(path, e["passage"])
+            if not p:
+                return self.append({**at, "error": "the passage changed after it was approved"})
+            if git(self.repo, "diff", "--cached", "--quiet").returncode:
+                return self.append({**at, "error": "other changes are staged; commit or unstage them first"})
+            if text == head:
+                return self.append({**at, "skipped": "nothing uncommitted in the passage"})
+            if checked or not self.check:
+                break
             r = subprocess.run(self.check, shell=True, cwd=self.repo, capture_output=True, text=True, timeout=900)
             if r.returncode:
                 return self.append({**at, "error": f"check failed: {self.check}\n{(r.stdout + r.stderr)[-400:]}"})
@@ -719,6 +728,11 @@ class Review:
             span = f"line {p['start']}" if p["start"] == p["end"] else f"lines {p['start']}-{p['end']}"
             msg = (f"docs(review {Path(path).stem})\n\nApply approved review edits to {path}, {span}\n\n"
                    f"Edits made during the review of {path}, {span}, approved by the author on the review page.")
+        if git(self.repo, "rev-parse", "HEAD").stdout.strip() != sha or \
+                git(self.repo, "diff", "--cached", "--name-only").stdout != path + "\n" or \
+                git(self.repo, "rev-parse", f":{path}").stdout.strip() != blob:
+            git(self.repo, "reset", "-q", "--", path)
+            return self.append({**at, "error": "HEAD moved while committing; approve again"})
         r = subprocess.run(["git", "-C", str(self.repo), "commit", "-q", "-F", "-"], input=msg + "\n",
                            capture_output=True, text=True)
         if r.returncode:

@@ -5,7 +5,7 @@
     review.py reply --repo DIR ID TEXT
     review.py open --repo DIR
 """
-import argparse, difflib, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
+import argparse, difflib, functools, hashlib, json, os, queue, re, subprocess, sys, threading, time, uuid, unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -160,11 +160,70 @@ def passages(path, old, new):
     return out
 
 
+@functools.lru_cache(maxsize=4096)
+def similarity(a, b):
+    return difflib.SequenceMatcher(None, TOKEN.findall(a), TOKEN.findall(b), autojunk=False).ratio()
+
+
+def since_approved(path, ps, approved):
+    """Show a hunk changed after its approval as the change since: its segments
+    become the diff from the approved text for the same base text closest to it,
+    each tagged with an index into the passage's "subs". A sub carries the hunk's
+    base key (old, new), the approved text `prev`, and `next`, what approving
+    that change alone leaves approved."""
+    mine = {}
+    for f, o, n in approved:
+        if f == path:
+            mine.setdefault(o, []).append(n)
+    for p in ps:
+        if p["kind"] != "changed":
+            continue
+        out, run, p["subs"] = [], [], []
+
+        def flush():
+            old = "".join(t for o, t in run if o == "-")
+            new = "".join(t for o, t in run if o == "+")
+            cands = [] if (path, old, new) in approved else [
+                c for c in mine.get(old, ()) if min(len(c), len(new)) >= 0.6 * max(len(c), len(new)) > 0]
+            prev = max(cands, key=lambda c: similarity(c, new), default=None)
+            if prev is None or similarity(prev, new) < 0.6:
+                out.extend(run)
+            else:
+                pos, cur = 0, None
+                for o, t in word_diff(prev, new):
+                    if o == "=":
+                        out.append([o, t])
+                        pos, cur = pos + len(t), None
+                        continue
+                    if cur is None:
+                        cur = {"old": old, "new": new, "prev": prev, "a": pos, "b": pos, "ins": ""}
+                        p["subs"].append(cur)
+                    if o == "-":
+                        pos += len(t)
+                        cur["b"] = pos
+                    else:
+                        cur["ins"] += t
+                    out.append([o, t, len(p["subs"]) - 1])
+            run.clear()
+
+        for s in p["segs"]:
+            if s[0] == "=":
+                flush()
+                out.append(s)
+            else:
+                run.append(s)
+        flush()
+        p["segs"] = out
+        for s in p["subs"]:
+            s["next"] = s["prev"][:s.pop("a")] + s.pop("ins") + s["prev"][s.pop("b"):]
+    return ps
+
+
 def hunks(segs):
     """Each run of changed segments as (start, end, old, new), positions in the
     passage's new text. The page numbers hunks the same way."""
     out, pos, cur = [], 0, None
-    for o, t in segs:
+    for o, t, *_ in segs:
         if o == "=":
             cur = None
             pos += len(t)
@@ -205,7 +264,18 @@ class Review:
 
     def doc(self):
         self.track()
-        return {"files": [{"path": p, "passages": passages(p, self.old_text(p), self.text(p))} for p in self.files]}
+        return {"files": [{"path": p, "passages": self.shown(p)} for p in self.files]}
+
+    def shown(self, path):
+        """A file's passages as the page shows them."""
+        approved = set()
+        for e in self.log():
+            k = (e.get("file"), e.get("old"), e.get("new"))
+            if e["type"] == "approve_hunk":
+                approved.add(k)
+            elif e["type"] == "unapprove_hunk":
+                approved.discard(k)
+        return since_approved(path, passages(path, self.old_text(path), self.text(path)), approved)
 
     def keys(self, path, text):
         return {(h[2], h[3]) for p in passages(path, self.old_text(path), text) if p["kind"] == "changed"
@@ -248,12 +318,12 @@ class Review:
         return entry
 
     def revert(self, body):
-        """Put one hunk's old text back into the file, if the passage still reads
-        as the page showed it."""
+        """Put one hunk's old text (base, or approved for a change since approval)
+        back into the file, if the passage still reads as the page showed it."""
         path = body["file"]
         if path not in self.files:
             raise LookupError("not a reviewed file")
-        p = next((p for p in passages(path, self.old_text(path), self.text(path)) if p["id"] == body["passage"]), None)
+        p = next((p for p in self.shown(path) if p["id"] == body["passage"]), None)
         hs = hunks(p["segs"]) if p else []
         k = int(body["hunk"])
         if not p or not 0 <= k < len(hs):
@@ -262,7 +332,7 @@ class Review:
         text = self.text(path)
         lines = text.split("\n")
         base = sum(len(l) + 1 for l in lines[:p["start"] - 1])
-        shown = "".join(t for o, t in p["segs"] if o != "-")
+        shown = "".join(t for o, t, *_ in p["segs"] if o != "-")
         if not shown:   # a removed paragraph: put it back before the line it preceded
             text = (text[:base] + old + "\n\n" + text[base:]) if p["start"] <= len(lines) \
                 else text.rstrip("\n") + "\n\n" + old + "\n"

@@ -63,10 +63,10 @@ main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
 .text { font: 15.5px/1.62 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; }
 ins { text-decoration: none; background: var(--ins-bg); border-bottom: 2px solid var(--ins); }
 del { background: var(--del-bg); color: var(--del); text-decoration: line-through; }
-.hunk { cursor: pointer; border-radius: 3px; }
-.hunk:hover { outline: 1px solid var(--accent); outline-offset: 1px; }
+.hunk:not(.ok) { cursor: pointer; border-radius: 3px; }
+.hunk:not(.ok):hover { outline: 1px solid var(--accent); outline-offset: 1px; }
 .hunk.on { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* An approved change reads as the new text alone, still clickable. */
+/* An approved change reads as the new text alone: plain, selectable text. */
 .hunk.ok del, .hunk.ok .mark { display: none; }
 .hunk.ok ins { background: none; border-bottom: 0; }
 button { font: 12.5px var(--ui); border: 1px solid var(--line); background: var(--panel); color: var(--fg);
@@ -202,9 +202,11 @@ function renderDoc() {
       // Each run of changes is a hunk, numbered as review.py's hunks() numbers it.
       const text = el("div", { class: "text" });
       let h = null; p.hs = [];
-      for (const [o, t] of p.segs) {
+      // A hunk changed since its approval shows the change since: its parts carry
+      // `sub` (review.py since_approved()).
+      for (const [o, t, s] of p.segs) {
         if (o === "=") { h = null; text.append(tex(t)); continue; }
-        if (!h) { h = el("span", { class: "hunk", title: "Approve, revert or comment" }); h.k = p.hs.length; p.hs.push(h); h.old = h.neu = ""; text.append(h); }
+        if (!h) { h = el("span", { class: "hunk" }); h.k = p.hs.length; p.hs.push(h); h.old = h.neu = ""; h.sub = p.subs?.[s]; text.append(h); }
         // A paragraph break removed or added shows as a marked ¶, not as blank lines.
         const brk = /^\s*\n\s*\n\s*$/.test(t);
         if (o === "-") { h.old += t; h.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : tex(t))); }
@@ -322,7 +324,11 @@ function renderState() {
     b.classList.toggle("approved", ok);
     card.classList.toggle("done", !!(ok && cm?.sha));   // committed: collapsed to its head
     if (cm?.error && S.approved.has(p.id)) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
-    for (const h of card.querySelectorAll(".hunk")) h.classList.toggle("ok", hunkOk(p, h));
+    for (const h of p.hs) {
+      const ok = hunkOk(p, h);
+      h.classList.toggle("ok", ok);
+      h.title = ok ? "" : "Approve, revert or comment";
+    }
   }
   const done = changed.filter(pOk).length;
   $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
@@ -482,42 +488,48 @@ tool.addEventListener("click", ev => {
 const hmenu = $("#hmenu");
 let menuFor = null;
 const hkey = (file, old, neu) => file + "\0" + old + "\0" + neu;
-const hOk = (p, h) => S.hunks.has(hkey(p.file, h.old, h.neu));
+// The key that approves a hunk whole: for a part of a change since approval, the whole change.
+const full = h => h.sub ? [h.sub.old, h.sub.new] : [h.old, h.neu];
+const hOk = (p, h) => S.hunks.has(hkey(p.file, ...full(h)));
 const hunkOk = (p, h) => S.approved.has(p.id) || hOk(p, h);
 // A passage is approved as a whole, or by approving each of its hunks.
 const pOk = p => !!p && (S.approved.has(p.id) || (p.hs.length > 0 && p.hs.every(h => hOk(p, h))));
-// Clear a passage's approval and its hunks', keeping the hunks in `keep` approved.
-async function unapprove(p, keep = []) {
+// Clear a passage's approval and its hunks'.
+async function unapprove(p) {
   const at = { passage: p.id, file: p.file, line: p.start };
-  if (S.approved.has(p.id)) {
-    for (const h of keep) if (!hOk(p, h)) await post({ ...at, type: "approve_hunk", old: h.old, new: h.neu });
-    await post({ ...at, type: "unapprove" });
+  if (S.approved.has(p.id)) await post({ ...at, type: "unapprove" });
+  for (const h of p.hs) if (hOk(p, h)) await post({ ...at, type: "unapprove_hunk", old: full(h)[0], new: full(h)[1] });
+}
+// Approve hunks whole. A change since approval replaces the approved text it was shown against.
+async function approveAll(hs) {
+  for (const x of hs) {
+    const q = x.closest(".card").passage, [o, n] = full(x);
+    if (hOk(q, x)) continue;
+    const at = { passage: q.id, file: q.file, line: q.start };
+    await post({ ...at, type: "approve_hunk", old: o, new: n });
+    if (x.sub) await post({ ...at, type: "unapprove_hunk", old: o, new: x.sub.prev });
   }
-  for (const h of p.hs) if (!keep.includes(h) && hOk(p, h)) await post({ ...at, type: "unapprove_hunk", old: h.old, new: h.neu });
 }
 function hideMenu() { hmenu.hidden = true; document.querySelectorAll(".hunk.on").forEach(x => x.classList.remove("on")); menuFor = null; }
 // The hunks on the page that came from the same edit as h.
 function editMates(h) {
-  const p = h.closest(".card").passage, id = S.editOf[hkey(p.file, h.old, h.neu)];
+  const p = h.closest(".card").passage, id = S.editOf[hkey(p.file, ...full(h))];
   if (!id) return [h];
   return [...document.querySelectorAll(".hunk")].filter(x => {
     const q = x.closest(".card").passage;
-    return S.editOf[hkey(q.file, x.old, x.neu)] === id;
+    return S.editOf[hkey(q.file, ...full(x))] === id;
   });
 }
 function openMenu(h) {
   hideMenu();
   tool.hidden = true; pending = null;
   menuFor = h;
-  const p = h.closest(".card").passage, ok = hunkOk(p, h);
   // Outline the whole edit this hunk came from; one click approves all of it.
   const mates = editMates(h), open = mates.filter(x => !hunkOk(x.closest(".card").passage, x));
   mates.forEach(x => x.classList.add("on"));
   const ae = $('[data-h="approve_edit"]', hmenu);
   ae.hidden = open.length < 2;
   ae.textContent = `Approve edit (${open.length})`;
-  const b = $('[data-h="approve"]', hmenu);
-  b.textContent = ok ? "Approved" : "Approve"; b.classList.toggle("approved", ok);
   $('[data-h="revert"]', hmenu).disabled = false;
   const rs = h.getClientRects(), r = rs[rs.length - 1];
   hmenu.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 240)) + "px";
@@ -535,17 +547,13 @@ hmenu.addEventListener("click", async ev => {
     const r = document.createRange(); r.setStart(h, 0);
     return openComposer(card, h.neu.trim() || "deleted: " + h.old.trim(), lineOf(p, r));
   }
-  if (act === "approve_edit") {
-    for (const x of editMates(h)) {
-      const q = x.closest(".card").passage;
-      if (!hunkOk(q, x)) await post({ passage: q.id, file: q.file, line: q.start, type: "approve_hunk", old: x.old, new: x.neu });
-    }
-    hideMenu(); return renderState();
-  }
+  if (act === "approve_edit") { await approveAll(editMates(h)); hideMenu(); return renderState(); }
   if (act === "approve") {
-    if (!hunkOk(p, h)) await post({ ...at, type: "approve_hunk", old: h.old, new: h.neu });
-    else await unapprove(p, p.hs.filter(x => x !== h));
-    hideMenu(); return renderState();
+    if (!h.sub) { await approveAll([h]); hideMenu(); return renderState(); }
+    // One part of a change since approval: the approved text takes that part alone.
+    await post({ ...at, type: "approve_hunk", old: h.sub.old, new: h.sub.next });
+    await post({ ...at, type: "unapprove_hunk", old: h.sub.old, new: h.sub.prev });
+    hideMenu(); return loadDoc(true);
   }
   if (act === "revert") {
     ev.target.disabled = true;
@@ -563,7 +571,7 @@ document.addEventListener("keydown", ev => {
 
 $("#doc").addEventListener("click", async ev => {
   const h = ev.target.closest(".hunk");
-  if (h && getSelection().isCollapsed) return openMenu(h);
+  if (h && !h.classList.contains("ok") && getSelection().isCollapsed) return openMenu(h);
   const done = ev.target.closest(".card.done");
   if (done && ev.target.closest(".where, .gist")) return done.classList.toggle("open");
   const act = ev.target.dataset.act;
@@ -574,7 +582,7 @@ $("#doc").addEventListener("click", async ev => {
   if (act === "dismiss") { await post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }); renderState(); }
   if (act === "approve") {
     if (pOk(p)) await unapprove(p);
-    else await post({ type: "approve", passage: p.id, file: p.file, line: p.start });
+    else { await approveAll(p.hs); await post({ type: "approve", passage: p.id, file: p.file, line: p.start }); }
     renderState();
   }
 });

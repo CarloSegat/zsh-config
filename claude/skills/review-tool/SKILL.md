@@ -28,7 +28,7 @@ A comment is a prompt from the user, anchored to `file`, `line` and the selected
 
 `python3 ~/.claude/skills/review-tool/review.py reply <id> "<text>"`
 
-The page drops a comment once it has a reply and re-renders by itself when the text changes: the user reads the result in the text, so the reply is a record. Clicking one change (a deletion with its insertion) offers Approve, Revert and Comment.
+The page drops a comment once it has a reply and re-renders by itself when the text changes: the user reads the result in the text, so the reply is a record. Clicking one change (a deletion with its insertion) offers Approve, Revert and Comment. Approved text reads, clicks and selects as plain text. An edit inside approved text shows as the change since approval, and Revert puts the approved text back.
 
 Approving a whole passage (its Approve button) commits that passage's uncommitted edits and nothing else: the server runs `--check`, stages only the diff hunks inside the passage, and commits with a message `claude -p` writes under the repo's commit rules (a fixed `docs(review <file>)` message without a key, or when the output breaks the 3-block format). It refuses while other changes are staged, never pushes, and logs a `commit` entry with the sha or the error, which the page shows on the button or under the passage.
 

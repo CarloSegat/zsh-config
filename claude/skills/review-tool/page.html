@@ -152,6 +152,7 @@ function el(tag, attrs = {}, ...kids) {
   return e;
 }
 
+// logLen: the log's length when the doc was loaded; build: the code this page was loaded with.
 let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null, build;
 let changed = [];        // changed passages in reading order
 let S = {};              // state derived from the log
@@ -403,8 +404,8 @@ function openComposer(card, quote, line, draft = "") {
     if (!ta.value.trim()) return;
     sends.forEach(b => b.disabled = true);
     try {
-      const e = await api("/api/log", { type: "comment", passage: p.id, file: p.file, line, quote, model, text: ta.value.trim() });
-      log.push(e); logLen++; derive(); renderState(); box.remove();
+      await post({ type: "comment", passage: p.id, file: p.file, line, quote, model, text: ta.value.trim() });
+      renderState(); box.remove();
     } catch (err) { sends.forEach(b => b.disabled = false); alertIn(box, err); }
   };
   cancel.onclick = () => box.remove();
@@ -424,7 +425,7 @@ async function contextualize(card, quote, line) {
   inflight.add(q); renderState();
   try {
     const e = await api("/api/contextualize", q);
-    inflight.delete(q); log.push(e); logLen++; derive(); renderState();
+    inflight.delete(q); add(e); renderState();
   } catch (err) {
     inflight.delete(q); renderState();
     const th = $(".thread", document.getElementById("p-" + home(q)) || card);
@@ -557,7 +558,9 @@ function openMenu(h) {
   hmenu.style.top = (r.bottom + scrollY + 6) + "px";
   hmenu.hidden = false;
 }
-async function post(e) { e = await api("/api/log", e); log.push(e); logLen++; derive(); }
+// An entry the server logged for this page; a poll may have fetched it already.
+function add(e) { if (!log.some(x => x.id === e.id)) log.push(e); derive(); }
+async function post(e) { add(await api("/api/log", e)); }
 hmenu.addEventListener("mousedown", ev => ev.preventDefault());
 hmenu.addEventListener("click", async ev => {
   const act = ev.target.dataset.h, h = menuFor;
@@ -575,8 +578,7 @@ hmenu.addEventListener("click", async ev => {
   if (act === "revert") {
     ev.target.disabled = true;
     try {
-      const e = await api("/api/revert", { passage: p.id, file: p.file, hunk: h.k });
-      log.push(e); logLen++;
+      await api("/api/revert", { passage: p.id, file: p.file, hunk: h.k });
       hideMenu(); await loadDoc(true);
     } catch (err) { hideMenu(); alertIn($(".thread", card), err); if (/changed/.test(err.message)) loadDoc(true); }
   }
@@ -645,11 +647,15 @@ const selecting = () => {
   return mouseDown || !tool.hidden || !hmenu.hidden || (sel.rangeCount > 0 && !sel.isCollapsed && $("#doc").contains(sel.anchorNode));
 };
 
+// Loads started, and the one on screen: a load that ends after a later one is dropped.
+let loads = 0, shown = 0;
 async function loadDoc(force = false) {
-  const d = await api("/api/doc");   // first: it logs the edits the log must then include
-  const [l, s, r] = await Promise.all([api("/api/log"), api("/api/state"), api("/api/refs")]);
-  refsData = r;
-  if (!force && selecting()) return;   // try again at the next poll
+  const n = ++loads;
+  const s = await api("/api/state");   // before the doc: an edit landing between them shows at the next poll
+  const d = await api("/api/doc");     // before the log: it logs the edits the log must then include
+  const [l, r] = await Promise.all([api("/api/log"), api("/api/refs")]);
+  if (n < shown || (!force && selecting())) return;   // selecting: try again at the next poll
+  shown = n; refsData = r;
   // Keep what the reader is doing across the re-render: the card at the top of
   // the screen and its offset, the focused card, and any comment being written.
   const cards = [...document.querySelectorAll(".card")];
@@ -685,14 +691,19 @@ async function poll() {
   try {
     const s = await api("/api/state");
     // New tool code: reload, so no click runs old page code against a new server.
-    if ((build ??= s.build) !== s.build && !document.querySelector(".composer")) return location.reload();
-    if (s.version !== version && !selecting()) await loadDoc();
-    else if (s.log !== logLen) { log = await api("/api/log"); logLen = log.length; derive(); renderState(); }
+    if (s.build !== build && !document.querySelector(".composer")) return location.reload();
+    // The doc shows the log too (approvals, splits): either changing reloads it. While
+    // the reader selects text, new entries update the threads alone, which keeps the selection.
+    if (s.version !== version || s.log !== logLen) {
+      if (!selecting()) await loadDoc();
+      else if (s.log !== log.length) { log = await api("/api/log"); derive(); renderState(); }
+    }
   } catch (_) { /* server restarting: try again next tick */ }
   loading = false;
 }
 
 (async () => {
+  build = (await api("/api/state")).build;
   info = await api("/api/info");
   $("#meta").textContent = `${info.repo.split("/").pop()} vs ${info.base}`;
   const b = $("#ctxbtn");

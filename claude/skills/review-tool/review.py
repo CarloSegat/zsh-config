@@ -659,17 +659,24 @@ class Review:
 
     def start_worker(self):
         """Handle comments (with an API key) and passage approvals one at a time,
-        so no 2 jobs touch a file at once; comments an earlier server left
-        unanswered go first."""
+        so no 2 jobs touch a file at once. The jobs a stopped server left open
+        (a comment with no reply, an approval with no later commit or
+        unapproval) run first, in log order."""
         self.agent = api_key() is not None
         threading.Thread(target=self.work, daemon=True).start()
-        if not self.agent:
-            return
-        log = self.log()
-        answered = {e["to"] for e in log if e["type"] == "reply"}
-        for e in log:
-            if e["type"] == "comment" and e["id"] not in answered:
-                self.queue.put(e)
+        done, todo = set(), []
+        for e in reversed(self.log()):
+            if e["type"] in ("commit", "unapprove"):
+                done.add(("approve", e.get("passage")))
+            elif e["type"] == "reply":
+                done.add(("comment", e["to"]))
+            elif e["type"] in ("approve", "comment"):
+                k = (e["type"], e["passage"] if e["type"] == "approve" else e["id"])
+                if k not in done:
+                    done.add(k)
+                    todo.append(e)
+        for e in reversed(todo):
+            self.enqueue(e)
 
     def enqueue(self, e):
         if e["type"] == "approve" or (e["type"] == "comment" and self.agent):

@@ -58,8 +58,9 @@ main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card.done .head .where { flex: none; }
 .card.done .head .where, .card.done .head .gist { display: block; cursor: pointer; }
-.card.done:not(.open) .text, .card.done:not(.open) .thread, .card.done:not(.open) .composer { display: none; }
-.card.done:not(.open) .head { border-bottom: 0; }
+/* A committed card shows its head alone, unless opened or holding a draft. */
+.card.done:not(.open, :has(.composer)) :is(.text, .thread) { display: none; }
+.card.done:not(.open, :has(.composer)) .head { border-bottom: 0; }
 .text { font: 15.5px/1.62 var(--read); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; }
 ins { text-decoration: none; background: var(--ins-bg); border-bottom: 2px solid var(--ins); }
 del { background: var(--del-bg); color: var(--del); text-decoration: line-through; }
@@ -384,10 +385,11 @@ function lineOf(p, range) {
   return p.start + (srcText(pre.cloneContents()).match(/\n/g) || []).length;
 }
 
-function openComposer(card, quote, line, draft = "") {
-  $(".composer", card)?.remove();
+function openComposer(card, quote, line) {
+  // A draft stays: opening the same quote again brings it back, another quote opens beside it.
+  const same = [...card.querySelectorAll(".composer")].find(b => b.meta.quote === quote);
+  if (same) return $("textarea", same).focus();
   const ta = el("textarea", { placeholder: "Prompt for Claude: what should change, or what to check" });
-  ta.value = draft;
   // One send button per model; the first (Sonnet) is the default and takes ⌘/Ctrl+Enter.
   const models = Object.entries(info.models || { Claude: info.model });
   const sends = models.map(([name, id], i) => {
@@ -402,10 +404,10 @@ function openComposer(card, quote, line, draft = "") {
   box.meta = { quote, line };
   $(".text", card).after(box);
   ta.focus();
-  const p = card.passage;
   const submit = async model => {
-    if (!ta.value.trim()) return;
+    if (sends[0].disabled || !ta.value.trim()) return;   // disabled: sending already
     sends.forEach(b => b.disabled = true);
+    const p = box.closest(".card").passage;   // a re-render may have moved the draft (loadDoc)
     try {
       await post({ type: "comment", passage: p.id, file: p.file, line, quote, model, text: ta.value.trim() });
       renderState(); box.remove();
@@ -675,10 +677,11 @@ async function loadDoc(force = false) {
   const top = cards.find(c => c.getBoundingClientRect().bottom > 60);
   const anchor = top && { id: top.passage.id, idx: changed.indexOf(top.passage), y: top.getBoundingClientRect().top };
   const focus = cur >= 0 && changed[cur] ? { id: changed[cur].id, idx: cur } : null;
+  // A draft moves to the new cards whole: its text, caret and any send in flight go with it.
+  const active = document.activeElement;
   const drafts = [...document.querySelectorAll(".composer")].map(b => {
-    const ta = $("textarea", b), p = b.closest(".card").passage;
-    return { id: p.id, idx: changed.indexOf(p), ...b.meta, text: ta.value,
-             focused: document.activeElement === ta, sel: [ta.selectionStart, ta.selectionEnd] };
+    const p = b.closest(".card").passage;
+    return [b, { passage: p.id, file: p.file, line: b.meta.line }];
   });
   const before = new Set(changed.map(p => p.id));
 
@@ -687,13 +690,9 @@ async function loadDoc(force = false) {
 
   if (before.size) for (const p of changed) if (!before.has(p.id)) document.getElementById("p-" + p.id).classList.add("fresh");
   if (focus) { const c = findCard(focus.id, focus.idx); if (c) { cur = changed.indexOf(c.passage); c.classList.add("cur"); renderSide(); } }
-  for (const d of drafts) {
-    const c = findCard(d.id, d.idx);
-    if (!c) continue;
-    openComposer(c, d.quote, d.line, d.text);
-    const ta = $(".composer textarea", c);
-    if (d.focused) ta.setSelectionRange(...d.sel); else ta.blur();
-  }
+  // To its passage, or to the one now at its line; focus goes back last, and only where it was.
+  for (const [b, at] of drafts) document.getElementById("p-" + home(at))?.querySelector(".thread").before(b);
+  if (active.isConnected && active.closest(".composer")) active.focus({ preventScroll: true });
   if (anchor) { const c = findCard(anchor.id, anchor.idx); if (c) scrollBy(0, c.getBoundingClientRect().top - anchor.y); }
 }
 

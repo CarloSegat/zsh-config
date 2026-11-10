@@ -285,7 +285,7 @@ function srcText(frag) {
 function note(who, e, cls = "") {
   const n = el("div", { class: "note " + cls },
     el("span", { class: "who" + (who === "Claude" ? " claude" : "") }, who),
-    el("span", { class: "meta" }, e.ts.slice(5, 16) + (e.cost != null ? ` · $${e.cost.toFixed(3)}` : "")));
+    el("span", { class: "meta" }, e.ts.slice(5, 16) + (e.model ? ` · ${e.model.replace("claude-", "")}` : "") + (e.cost != null ? ` · $${e.cost.toFixed(3)}` : "")));
   if (e.quote) n.append(el("blockquote", {}, e.quote));
   n.append(el("div", { class: "body" }, e.text));
   return n;
@@ -303,7 +303,7 @@ function renderState() {
   // Only comments still waiting for Claude show; answered ones are done with.
   for (const c of S.open) {
     const n = note("You", c);
-    if (info.worker) n.children[1].append(` · ${info.model} is on it…`);
+    if (info.worker) n.children[1].append(" · on it…");
     threads[home(c)]?.append(n);
   }
   for (const c of S.asked) {
@@ -383,25 +383,32 @@ function openComposer(card, quote, line, draft = "") {
   $(".composer", card)?.remove();
   const ta = el("textarea", { placeholder: "Prompt for Claude: what should change, or what to check" });
   ta.value = draft;
-  const save = el("button", { class: "primary" }, "Save");
+  // One send button per model; the first (Sonnet) is the default and takes ⌘/Ctrl+Enter.
+  const models = Object.entries(info.models || { Claude: info.model });
+  const sends = models.map(([name, id], i) => {
+    const b = el("button", i ? {} : { class: "primary" }, `Send to ${name}`);
+    b.onclick = () => submit(id);
+    return b;
+  });
   const cancel = el("button", {}, "Cancel");
   const box = el("div", { class: "composer" }, quote ? el("blockquote", {}, quote) : null, ta,
-    el("div", { class: "row" }, el("span", { class: "hint" }, "⌘/Ctrl+Enter to save · Esc to cancel"), cancel, save));
+    el("div", { class: "row" }, el("span", { class: "hint" }, `⌘/Ctrl+Enter sends to ${models[0][0]} · Esc to cancel`),
+      cancel, ...sends.reverse()));
   box.meta = { quote, line };
   $(".text", card).after(box);
   ta.focus();
   const p = card.passage;
-  const submit = async () => {
+  const submit = async model => {
     if (!ta.value.trim()) return;
-    save.disabled = true;
+    sends.forEach(b => b.disabled = true);
     try {
-      const e = await api("/api/log", { type: "comment", passage: p.id, file: p.file, line, quote, text: ta.value.trim() });
+      const e = await api("/api/log", { type: "comment", passage: p.id, file: p.file, line, quote, model, text: ta.value.trim() });
       log.push(e); logLen++; derive(); renderState(); box.remove();
-    } catch (err) { save.disabled = false; alertIn(box, err); }
+    } catch (err) { sends.forEach(b => b.disabled = false); alertIn(box, err); }
   };
-  save.onclick = submit; cancel.onclick = () => box.remove();
+  cancel.onclick = () => box.remove();
   ta.onkeydown = ev => {
-    if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) submit();
+    if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) submit(models[0][1]);
     if (ev.key === "Escape") box.remove();
   };
 }

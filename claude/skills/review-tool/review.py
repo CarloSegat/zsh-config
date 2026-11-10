@@ -11,7 +11,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 KEYCHAIN_SERVICE = "anthropic-api-credits"
-MODEL = "claude-sonnet-5-5"
+MODELS = {"Sonnet": "claude-sonnet-5-5", "Opus": "claude-opus-5-5"}   # the page offers each for a comment
+MODEL = MODELS["Sonnet"]
 CONTEXT_TOOLS = "Read,Grep,Glob,Bash(grep:*),Bash(sed:*)"
 EDIT_TOOLS = "Read,Grep,Glob,Edit(./**)"   # edits inside the repo only; no shell, so no commit
 COMMENT_PROMPT = """A reviewer of the uncommitted text changes in this repository left a comment on {file}, near line {line}.
@@ -472,7 +473,7 @@ class Review:
         return self.append({"type": "revert", "passage": p["id"], "file": path, "line": p["start"],
                             "removed": new, "restored": old})
 
-    def claude(self, prompt, tools):
+    def claude(self, prompt, tools, model=MODEL):
         """Run claude -p in the repo on the Keychain API key; return its result event."""
         key = api_key()
         if not key:
@@ -482,7 +483,7 @@ class Review:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith("CLAUDE") and k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
         env["ANTHROPIC_API_KEY"] = key
-        r = subprocess.run(["claude", "-p", prompt, "--model", MODEL, "--allowedTools", tools,
+        r = subprocess.run(["claude", "-p", prompt, "--model", model, "--allowedTools", tools,
                             "--permission-mode", "dontAsk", "--output-format", "stream-json", "--verbose"],
                            cwd=self.repo, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                            timeout=600)
@@ -571,10 +572,10 @@ class Review:
         return self.append({**at, "sha": sha, "message": msg, "cost": cost, "model": MODEL if cost else None})
 
     def answer(self, c):
-        before = self.version()
+        before, model = self.version(), c.get("model", MODEL)
         try:
             r = self.claude(COMMENT_PROMPT.format(file=c["file"], line=c["line"], text=c["text"],
-                                                  quote=c.get("quote") or "(none: the whole passage)"), EDIT_TOOLS)
+                                                  quote=c.get("quote") or "(none: the whole passage)"), EDIT_TOOLS, model)
             text, cost = r["result"], r.get("total_cost_usd")
         except Exception as e:
             text, cost = f"Failed: {e}", None
@@ -582,7 +583,7 @@ class Review:
         # comment when it did not (a question, a refusal, a failure).
         self.track()
         self.append({"type": "reply", "to": c["id"], "text": text, "edited": self.version() != before,
-                     "cost": cost, "model": MODEL})
+                     "cost": cost, "model": model})
 
 
 def bib_field(entry, name):
@@ -673,7 +674,7 @@ def handler(review, port):
             if self.path == "/":
                 return self.send(200, (HERE / "page.html").read_bytes(), "text/html; charset=utf-8")
             if self.path == "/api/info":
-                return self.send(200, {"repo": str(review.repo), "base": review.base, "model": MODEL,
+                return self.send(200, {"repo": str(review.repo), "base": review.base, "model": MODEL, "models": MODELS,
                                        "has_key": api_key() is not None, "service": KEYCHAIN_SERVICE,
                                        "worker": review.agent})
             if self.path == "/api/refs":
@@ -694,7 +695,9 @@ def handler(review, port):
                 if self.path == "/api/log":
                     if body.get("type") not in PAGE_TYPES:
                         return self.send(400, {"error": "bad type"})
-                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "old", "new", "to") if k in body}
+                    if body.get("model", MODEL) not in MODELS.values():
+                        return self.send(400, {"error": "bad model"})
+                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "old", "new", "to", "model") if k in body}
                     e = review.append(keep)
                     review.enqueue(e)
                     return self.send(200, e)

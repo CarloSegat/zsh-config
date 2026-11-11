@@ -203,31 +203,31 @@ class PageTest(unittest.TestCase):
         return self.p.js("[...document.querySelectorAll('.card [data-act=approve]')].map(b => b.textContent)")
 
     def first_line(self):
-        return self.p.js("newText(changed.find(p => newText(p).startsWith('Membership'))).split('\\n')[0]")
+        return self.p.js("newText(cards.find(p => newText(p).startsWith('Membership'))).split('\\n')[0]")
 
     # Bug 1: a passage approved hunk by hunk commits; its button never wipes approvals in 1 action.
 
     def test_hunk_by_hunk_approval_commits(self):
         p = self.start("\\section{Intro}\n\nThe quick brown fox jumps over the lazy dog near the river bank.\n",
                        "\\section{Intro}\n\nThe slow brown fox jumps over the lazy dog near the river shore.\n")
-        self.assertEqual(p.js("changed[0].hs.length"), 2)
+        self.assertEqual(p.js("cards[0].hs.length"), 2)
         n = len(self.log())
         self.menu(0, 0, "approve")
         time.sleep(1)
         self.assertEqual(self.types(n), ["approve_text"])
-        self.assertEqual([self.buttons(), p.js("changed[0].hs.length")], [["Approve"], 1])
+        self.assertEqual([self.buttons(), p.js("cards[0].hs.length")], [["Approve"], 1])
         self.menu(0, 0, "approve")
         self.assertEqual(self.committed(n), ["approve_text", "approve_text", "approve", "commit"])
-        self.assertEqual(until(lambda: self.buttons()[0].startswith("Committed ")), True)
+        self.assertEqual(until(lambda: self.buttons()[0] == "Committed"), True)
 
     def test_split_part_approved_from_its_menu_commits(self):
         p = self.start()
         self.click(0, "split")
-        until(lambda: p.js("changed.length") == 2)
+        until(lambda: p.js("cards.length") == 2)
         n = len(self.log())
         self.menu(1, 0, "approve")
         self.assertEqual(self.committed(n), ["approve_text", "approve", "commit"])
-        self.assertEqual(until(lambda: self.buttons()[1].startswith("Committed ")), True)
+        self.assertEqual(until(lambda: self.buttons()[1] == "Committed"), True)
 
     def test_green_passage_without_approve_commits(self):
         p = self.start()
@@ -242,7 +242,7 @@ class PageTest(unittest.TestCase):
         p = self.start()
         self.click(0)
         self.committed(0)
-        until(lambda: self.buttons()[0].startswith("Committed "))
+        until(lambda: self.buttons()[0] == "Committed")
         p.js("window.confirm = m => (window.__asked = m, window.__yes)")
         n = len(self.log())
         p.key("j")
@@ -262,8 +262,8 @@ class PageTest(unittest.TestCase):
         """Split the inserted paragraph twice, as the page does: parts at lines 5, 6 and 8."""
         for k in (2, 3):
             self.click(0, "split")
-            until(lambda: p.js("changed.length") == k)
-        self.assertEqual(p.js("changed.map(p => [p.start, p.end])"), [[5, 5], [6, 7], [8, 10]])
+            until(lambda: p.js("cards.length") == k)
+        self.assertEqual(p.js("cards.map(p => [p.start, p.end])"), [[5, 5], [6, 7], [8, 10]])
 
     def test_green_split_part_commits_alone(self):
         p = self.start()
@@ -273,7 +273,7 @@ class PageTest(unittest.TestCase):
         n = len(self.log())
         self.click(2)
         self.assertEqual(self.committed(n), ["approve", "commit"])
-        self.assertEqual(until(lambda: self.buttons()[2].startswith("Committed ") and self.buttons()[:2]), ["Commit", "Commit"])
+        self.assertEqual(until(lambda: self.buttons()[2] == "Committed" and self.buttons()[:2]), ["Commit", "Commit"])
 
     def test_approve_edit_on_split_parts(self):
         p = self.start()
@@ -293,7 +293,7 @@ class PageTest(unittest.TestCase):
         n = len(self.log())
         self.click(2)
         self.assertEqual(self.committed(n), ["approve_text", "approve", "commit"])
-        until(lambda: self.buttons()[2].startswith("Committed "))
+        until(lambda: self.buttons()[2] == "Committed")
         self.assertEqual(self.buttons()[:2], ["Approve", "Approve"])
         p.js("window.confirm = m => (window.__asked = m, true)")
         n = len(self.log())
@@ -330,7 +330,7 @@ class PageTest(unittest.TestCase):
         p.js("document.querySelectorAll('.composer textarea')[1].value = 'second draft'")
         p.type("xy")
         self.write(WORK3.replace("Alpha paragraph", "Alpha para"))   # an edit re-renders the page
-        until(lambda: p.js("changed.length") == 4)
+        until(lambda: p.js("cards.length") == 4)
         self.assertEqual(p.js("document.activeElement.value"), "xy")
         n = len(self.log())
         p.type("ac")
@@ -369,7 +369,7 @@ class PageTest(unittest.TestCase):
         p.js("document.querySelectorAll('.composer textarea')[1].value = 'D9'")
         # Line 7's change reverted and line 9's reworded: both passages' ids go.
         self.write(WORK3.replace("are stored in the registry.", "are stored.").replace("twice", "thrice"))
-        until(lambda: p.js("changed.length") == 2)
+        until(lambda: p.js("cards.length") == 2)
         self.assertEqual(p.js(CMDS), [[9, 7, "D7"], [9, 9, "D9"]])
 
     def test_sent_comment_stays_sent_across_a_rerender(self):
@@ -380,7 +380,7 @@ class PageTest(unittest.TestCase):
         p.js("$('.composer button.primary').click()")
         until(lambda: p.js("!!window.__held"))
         self.write(WORK.replace("Alpha paragraph", "Alpha para"))
-        until(lambda: p.js("changed.length") == 2)
+        until(lambda: p.js("cards.length") == 2)
         p.js("window.__go()")
         time.sleep(0.5)
         self.assertEqual(p.js(CMDS), [])
@@ -424,7 +424,7 @@ class PageTest(unittest.TestCase):
                      "text": "Revoked credentials are stored in the registry."})   # from another tab
         want = [[["=", "Revoked credentials are stored in the registry."]],
                 [["=", "Every verifier checks them"], ["+", " in the registry of record"], ["=", "."]]]
-        self.assertEqual(until(lambda: p.js("changed.map(p => p.segs)") == want and want, 5), want)
+        self.assertEqual(until(lambda: p.js("cards.map(p => p.segs)") == want and want, 5), want)
 
     def test_commit_shows_when_a_poll_synced_the_approve_first(self):
         go = TMP / f"go-{os.getpid()}"
@@ -435,7 +435,7 @@ class PageTest(unittest.TestCase):
         until(lambda: p.js("!!window.__held") and len(self.log()) == 3 and p.js("log.length") == 3)   # a poll fetched the approve
         p.js("window.__go()")
         go.touch()
-        self.assertEqual(until(lambda: self.buttons()[0].startswith("Committed ")), True)
+        self.assertEqual(until(lambda: self.buttons()[0] == "Committed"), True)
 
     # Bug 5: a failed request shows on the card and closes the menu.
 
@@ -466,7 +466,7 @@ class PageTest(unittest.TestCase):
         self.click(0)
         self.committed(0)
         until(lambda: p.js("$('.card').classList.contains('done')"))
-        self.append({"id": "c1", "type": "comment", "passage": p.js("changed[0].id"), "file": "doc.tex", "line": 5, "quote": "", "text": "Name the registry"})
+        self.append({"id": "c1", "type": "comment", "passage": p.js("cards[0].id"), "file": "doc.tex", "line": 5, "quote": "", "text": "Name the registry"})
         self.append({"id": "r1", "type": "reply", "to": "c1", "text": "Which registry, the group's or the global one?", "edited": False})
         side = "$('#side').textContent.includes('Which registry, the group')"
         self.assertEqual(until(lambda: p.js(side), 5), True)
@@ -479,7 +479,7 @@ class PageTest(unittest.TestCase):
     def test_open_comment_link_shows_the_comment_on_a_long_card(self):
         long = "\n".join([PARA] * 6)   # a card taller than the window, its thread below the fold
         p = self.start(work=BASE.replace("Omega", long + "\n\nOmega"))
-        self.append({"id": "c1", "type": "comment", "passage": p.js("changed[0].id"), "file": "doc.tex", "line": 5, "quote": "", "text": "Name the registry"})
+        self.append({"id": "c1", "type": "comment", "passage": p.js("cards[0].id"), "file": "doc.tex", "line": 5, "quote": "", "text": "Name the registry"})
         self.append({"id": "r1", "type": "reply", "to": "c1", "text": "Which registry, the group's or the global one?", "edited": False})
         until(lambda: p.js("!!$('.card .note.reply')", quiet=True), 5)
         self.assertEqual(p.js("$('.card').offsetHeight > innerHeight"), True)
@@ -491,7 +491,7 @@ class PageTest(unittest.TestCase):
 
     def test_history_folds_settled_exchanges_and_the_toggle_sends_them(self):
         p = self.start()
-        at = {"passage": p.js("changed[0].id"), "file": "doc.tex", "line": 5, "quote": ""}
+        at = {"passage": p.js("cards[0].id"), "file": "doc.tex", "line": 5, "quote": ""}
         self.append({"id": "c1", "type": "comment", **at, "text": "Shorten it"})
         self.append({"id": "r1", "type": "reply", "to": "c1", "text": "Cut the second sentence.", "edited": True})
         self.append({"id": "k1", "type": "context", **at, "quote": "registry", "text": "The registry is the group's."})
@@ -518,6 +518,33 @@ class PageTest(unittest.TestCase):
                  f"if ({str(check).lower()}) $('input[type=checkbox]', b).click(); $('.primary', b).click() }}")
             until(lambda: len(self.log()) > n)
         self.assertEqual([e.get("history") for e in self.log() if e["type"] == "comment"][-2:], [["c1", "c2"], None])
+
+    # Blocks in view: + strips add unchanged paragraphs as cards, ✕ removes a card; the count stays put.
+
+    def test_plus_strip_and_remove_keep_the_count(self):
+        p = self.start(BASE3, WORK3)
+        state = "[cards.map(p => [p.start, p.kind]), [...document.querySelectorAll('.strip')].map(s => s.textContent), " \
+                "$('#progress').textContent]"
+        self.assertEqual(p.js(state), [[[7, "changed"], [9, "changed"], [11, "changed"]], ["3 paragraphs＋ 2 ↑"],
+                                       "0 / 3 approved (0 added, 0 removed) · 0 open comments"])
+        p.js("$('.strip button').click()")
+        self.assertEqual(until(lambda: p.js("cards.length") == 5 and p.js(state), 5),
+                         [[[3, "same"], [5, "same"], [7, "changed"], [9, "changed"], [11, "changed"]], ["＋ 1"],
+                          "0 / 3 approved (2 added, 0 removed) · 0 open comments"])
+        self.assertEqual(p.js("[...document.querySelectorAll('.card')].map(c => [c.classList.contains('added'), !!$('[data-act=approve]', c)])"),
+                         [[True, False], [True, False], [False, True], [False, True], [False, True]])
+        # A comment on an added block shows on it.
+        self.append({"id": "c1", "type": "comment", "passage": p.js("cards[1].id"), "file": "doc.tex", "line": 5, "quote": "", "text": "Cut it"})
+        self.assertEqual(until(lambda: p.js("$('.card:nth-of-type(2) .thread').textContent.includes('Cut it')", quiet=True), 5), True)
+        p.js("document.querySelectorAll('.card')[0].querySelector('[data-act=hide]').click()")
+        until(lambda: p.js("cards.length") == 4)
+        p.js("document.querySelectorAll('.card')[2].querySelector('[data-act=hide]').click()")
+        self.assertEqual(until(lambda: p.js("cards.length") == 3 and p.js(state), 5),
+                         [[[5, "same"], [7, "changed"], [11, "changed"]], ["＋ 2", "＋ 1"],
+                          "0 / 3 approved (1 added, 1 removed) · 1 open comment"])
+        p.js("$('#progress button').click()")
+        self.assertEqual(until(lambda: p.js("cards.length") == 4 and p.js(state)[0], 5),
+                         [[5, "same"], [7, "changed"], [9, "changed"], [11, "changed"]])
 
 if __name__ == "__main__":
     unittest.main()

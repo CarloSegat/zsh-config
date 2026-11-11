@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Review Changes</title>
 <style>
-/* Layout: sticky header; sidebar index of changed passages beside one reading column. */
+/* Layout: sticky header; sidebar index of the cards beside one reading column. */
 :root {
   --bg: #f7f7f4; --panel: #ffffff; --fg: #1d1f21; --muted: #6b6f73; --line: #dcdcd6;
   --accent: #2f5d8a; --ins: #1f7a4d; --ins-bg: #dff2e6; --del: #b03a2e; --del-bg: #f8e1de;
-  --ok: #1f7a4d; --warn: #b7791f; --quote: #eef1f5;
+  --ok: #1f7a4d; --warn: #b7791f; --added: #3b6fd4; --quote: #eef1f5;
   --read: "Iowan Old Style", "Charter", "Georgia", serif;
   --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -17,7 +17,7 @@
 @media (prefers-color-scheme: dark) { :root {
   --bg: #16181b; --panel: #1e2125; --fg: #e4e4e0; --muted: #9a9ea3; --line: #33373c;
   --accent: #7fb0e0; --ins: #6fd39d; --ins-bg: #1d3a2b; --del: #f08a7e; --del-bg: #43231f;
-  --ok: #6fd39d; --warn: #e3b25a; --quote: #262b31; color-scheme: dark;
+  --ok: #6fd39d; --warn: #e3b25a; --added: #7ea6f2; --quote: #262b31; color-scheme: dark;
 } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--ui); }
@@ -41,6 +41,13 @@ nav a .gist { color: var(--muted); overflow: hidden; text-overflow: ellipsis; wh
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; border: 1.5px solid var(--muted); align-self: center; }
 .dot.ok { background: var(--ok); border-color: var(--ok); }
 .dot.open { background: var(--warn); border-color: var(--warn); }
+.dot.added { background: var(--added); border-color: var(--added); }
+.card.added { border: 1px dashed var(--added); }
+.strip { display: flex; gap: 10px; justify-content: center; align-items: center; color: var(--muted); font-size: 12px; margin: 6px 0; }
+.strip button { font-size: 12px; }
+.head .x { border: 0; background: none; color: var(--muted); padding: 0 2px; }
+#progress button { font: inherit; padding: 0; border: 0; background: none; color: inherit; text-decoration: underline dotted; }
+#progress button:disabled { text-decoration: none; }
 main { padding: 16px max(16px, 3vw) 120px; min-width: 0; }
 .file { max-width: 860px; margin: 0 auto 32px; }
 .file > h2 { font: 600 13px var(--mono); color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
@@ -156,13 +163,13 @@ function el(tag, attrs = {}, ...kids) {
 
 // logLen: the log's length when the doc was loaded; build: the code this page was loaded with.
 let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null, build;
-let changed = [];        // changed passages in reading order
+let cards = [];          // the passages shown as cards, in reading order
 let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
 const histOpen = new Set();  // passages whose History is unfolded
 
 function derive() {
-  S = { queued: new Set(), comments: [], replies: {}, dismissed: new Set(), deleted: new Set(), commits: {}, talk: [], spent: 0, open: [], asked: [] };
+  S = { queued: new Set(), comments: [], replies: {}, dismissed: new Set(), deleted: new Set(), view: {}, commits: {}, talk: [], spent: 0, open: [], asked: [] };
   for (const e of log) {
     // A passage approved whole waits for its commit (review.py commit()).
     if (e.type === "approve") S.queued.add(e.passage);
@@ -173,6 +180,7 @@ function derive() {
     if (e.type === "reply") { (S.replies[e.to] ||= []).push(e); S.spent += e.cost || 0; }
     if (e.type === "dismiss") S.dismissed.add(e.to);
     if (e.type === "delete") S.deleted.add(e.to);
+    if (e.type === "view") for (const id of e.passages) S.view[id] = e.show;
     if (e.type === "commit") { S.queued.delete(e.passage); S.commits[e.passage] = e; S.spent += e.cost || 0; }
     if (e.type === "context") S.spent += e.cost || 0;
   }
@@ -187,8 +195,8 @@ function derive() {
 // The passage a note belongs to. Editing a passage changes its id, so a note
 // whose passage is gone follows its file and line to the passage there now.
 function home(e) {
-  if (changed.some(p => p.id === e.passage)) return e.passage;
-  const ps = changed.filter(p => p.file === e.file);
+  if (cards.some(p => p.id === e.passage)) return e.passage;
+  const ps = cards.filter(p => p.file === e.file);
   if (!ps.length) return null;
   const hit = ps.find(p => e.line >= p.start && e.line <= p.end);
   return (hit || ps.reduce((a, b) => Math.abs(b.start - e.line) < Math.abs(a.start - e.line) ? b : a)).id;
@@ -203,12 +211,19 @@ const gist = p => p.segs.filter(s => s[0] !== "-").map(s => s[1]).join("").repla
 
 function renderDoc() {
   const main = $("#doc"); main.replaceChildren();
-  changed = [];
+  cards = [];
   for (const f of doc.files) {
     const sec = el("section", { class: "file" }, el("h2", {}, f.path));
-    for (const p of f.passages) {
-      if (p.kind === "same") { sec.append(el("div", { class: "same" }, tex(p.segs[0][1]))); continue; }
-      changed.push(p);
+    // Passages between 2 cards, or a card and the file's edge, are a gap behind a + strip.
+    const ps = f.passages;
+    for (let i = 0, j; i < ps.length; i = j) {
+      for (j = i; j < ps.length && !visible(ps[j]); j++);
+      if (j > i) {
+        sec.append(strip(ps.slice(i, j), i > 0, j < ps.length), ...ps.slice(i, j).map(p => el("div", { class: "same" }, tex(newText(p)))));
+        continue;
+      }
+      const p = ps[j++];
+      cards.push(p);
       // Each run of changes is a hunk, numbered as review.py's hunks() numbers it. The
       // segments are the diff from the passage's approved text: every hunk is pending.
       const text = el("div", { class: "text" });
@@ -221,20 +236,40 @@ function renderDoc() {
         if (o === "-") { h.old += t; h.append(el("del", brk ? { title: "paragraph break removed" } : {}, brk ? " ¶ " : tex(t))); }
         else { h.neu += t; brk ? h.append(el("ins", { class: "mark", title: "paragraph break added" }, " ¶"), t) : h.append(el("ins", {}, tex(t))); }
       }
-      const card = el("article", { class: "card", id: "p-" + p.id },
+      const card = el("article", { class: p.kind === "same" ? "card added" : "card", id: "p-" + p.id },
         el("div", { class: "head" },
           el("span", { class: "where" }, `${p.file}:${lineSpan(p)}`),
           el("span", { class: "gist" }, p.segs.filter(([o]) => o !== "-").map(([, t]) => t).join("").replace(/\s+/g, " ").slice(0, 160)),
           el("button", { "data-act": "note" }, "Comment"),
-          newText(p).trim().includes("\n") ? el("button", { "data-act": "split", title: "Cut this passage in 2 at the line nearest its middle" }, "Split in half") : null,
-          el("button", { "data-act": "approve" }, "Approve")),
+          p.kind === "changed" && newText(p).trim().includes("\n") ? el("button", { "data-act": "split", title: "Cut this passage in 2 at the line nearest its middle" }, "Split in half") : null,
+          p.kind === "changed" ? el("button", { "data-act": "approve" }, "Approve") : null,
+          el("button", { "data-act": "hide", class: "x", title: "Remove this block from the view" }, "✕")),
         text, el("div", { class: "thread" }));
       card.passage = p;
       sec.append(card);
     }
-    if (sec.children.length > 1) main.append(sec);
+    if (sec.querySelector(".card")) main.append(sec);
   }
   renderState();
+}
+
+// A changed passage is a card unless the reader removed it; an unchanged one once the reader added it.
+const visible = p => S.view[p.id] ?? p.kind === "changed";
+const view = (ps, show) => post({ type: "view", passages: ps.map(p => p.id), show }).then(() => loadDoc(true));
+
+// A gap's + strip: the 2 paragraphs after the card above it, or before the card below it, become cards.
+function strip(gap, above, below) {
+  const s = el("div", { class: "strip" });
+  const plus = (ps, label, title) => {
+    const b = el("button", { title }, label);
+    b.onclick = () => run(s, () => view(ps, true));
+    return b;
+  };
+  if (gap.length <= 2) return s.append(plus(gap, `＋ ${gap.length}`, `Show ${gap.length > 1 ? "these 2 paragraphs" : "this paragraph"} as cards`)), s;
+  if (above) s.append(plus(gap.slice(0, 2), "＋ 2 ↓", "Show the 2 paragraphs after the card above"));
+  s.append(`${gap.length} paragraphs`);
+  if (below) s.append(plus(gap.slice(-2), "＋ 2 ↑", "Show the 2 paragraphs before the card below"));
+  return s;
 }
 
 // LaTeX shown as the PDF would print it. Every rendered piece keeps its source
@@ -306,7 +341,7 @@ function waiting(q) {
 
 function renderState() {
   const threads = {};
-  for (const p of changed) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
+  for (const p of cards) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
   for (const th of Object.values(threads)) th.replaceChildren();
   // Settled exchanges (answered comments, contextualizations), oldest first, folded under History.
   const past = {};
@@ -340,21 +375,28 @@ function renderState() {
     th.append(r);
   }
   for (const q of inflight) threads[home(q)]?.append(waiting(q));
-  for (const p of changed) {
+  for (const p of cards) {
     const card = document.getElementById("p-" + p.id);
+    if (p.kind === "same") continue;   // added by the reader: nothing to approve
     const ok = pOk(p), cm = S.commits[p.id], queued = S.queued.has(p.id);
     card.classList.toggle("ok", ok);
     const b = $('[data-act="approve"]', card);
     // Approved, with lines HEAD lacks: it commits (review.py commit()).
-    b.textContent = !ok ? "Approve" : p.dirty ? (queued ? "Committing…" : "Commit") : cm?.sha ? `Committed ${cm.sha}` : "Committed";
+    b.textContent = !ok ? "Approve" : p.dirty ? (queued ? "Committing…" : "Commit") : "Committed";
     b.classList.toggle("approved", ok);
     b.disabled = busy;
     // Committed: collapsed to its head.
     card.classList.toggle("done", committed(p) && !S.live.some(c => home(c) === p.id));
     if (cm?.error && ok && p.dirty && !queued) threads[p.id].append(note("Commit failed", { ts: cm.ts, text: cm.error }));
   }
-  const done = changed.filter(pOk).length;
-  $("#progress").textContent = `${done} / ${changed.length} approved · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`;
+  // Every changed passage counts, shown or removed; added ones do not.
+  const all = doc.files.flatMap(f => f.passages).filter(p => p.kind === "changed");
+  const removed = all.filter(p => !visible(p));
+  const back = el("button", { title: "Show the removed blocks again" }, `${removed.length} removed`);
+  back.disabled = !removed.length;
+  back.onclick = () => run($("#progress"), () => view(removed, true));
+  $("#progress").replaceChildren(`${all.filter(pOk).length} / ${all.length} approved (${cards.filter(p => p.kind === "same").length} added, `,
+    back, `) · ${S.open.length} open comment${S.open.length === 1 ? "" : "s"}`);
   $("#spent").textContent = info.has_key ? `API credits spent: $${S.spent.toFixed(2)}` : "Contextualize off: no API key";
   renderSide();
 }
@@ -369,9 +411,9 @@ function renderSide() {
     side.append(a);
   }
   let file = null;
-  for (const [i, p] of changed.entries()) {
+  for (const [i, p] of cards.entries()) {
     if (p.file !== file) { file = p.file; side.append(el("h2", {}, file)); }
-    const state = S.live.some(c => home(c) === p.id) ? "open" : pOk(p) ? "ok" : "";
+    const state = S.live.some(c => home(c) === p.id) ? "open" : p.kind === "same" ? "added" : pOk(p) ? "ok" : "";
     const a = el("a", { href: "#p-" + p.id, class: i === cur ? "cur" : "" }, el("span", { class: "dot " + state }),
       el("span", { class: "where" }, where(p)), el("span", { class: "gist" }, gist(p)));
     a.onclick = ev => { ev.preventDefault(); focusCard(i); };
@@ -383,10 +425,10 @@ function renderSide() {
 }
 
 function focusCard(i) {
-  if (i < 0 || i >= changed.length) return;
+  if (i < 0 || i >= cards.length) return;
   document.querySelector(".card.cur")?.classList.remove("cur");
   cur = i;
-  const card = document.getElementById("p-" + changed[i].id);
+  const card = document.getElementById("p-" + cards[i].id);
   card.classList.add("cur");
   card.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   renderSide();
@@ -534,7 +576,7 @@ tool.addEventListener("click", ev => {
 const hmenu = $("#hmenu");
 let menuFor = null;
 // Approved: no hunk left. Committed: approved, and HEAD has its lines.
-const pOk = p => !!p && p.hs.length === 0;
+const pOk = p => !!p && p.segs.every(([o]) => o === "=");
 const committed = p => pOk(p) && !p.dirty;
 // Approve hunks: the server makes them in their passages' approved texts, and commits
 // a passage left with none (review.py Review.approve()).
@@ -597,6 +639,7 @@ $("#doc").addEventListener("click", ev => {
   if (!act || !card) return;
   const p = card.passage;
   if (act === "note") openComposer(card, "", first(p));
+  if (act === "hide") run(card, () => view([p], false));
   if (act === "dismiss") run(card, () => post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }));
   if (act === "delete" && confirm("Delete this exchange from the passage's history? Claude no longer gets it with the block history."))
     run(card, () => post({ type: "delete", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }));
@@ -605,7 +648,7 @@ $("#doc").addEventListener("click", ev => {
     if (committed(p)) {
       // Withdrawing puts the base text back as the approved text of the whole passage, its
       // parts included: never on a stray click.
-      const n = changed.filter(q => q.unit === p.unit).length - 1;
+      const n = cards.filter(q => q.unit === p.unit).length - 1;
       if (!confirm(`Withdraw the approval of ${where(p)} and of its changes${n ? `, with the other ${n} part${n > 1 ? "s" : ""} of its passage` : ""}? Its commit stays.`)) return;
       await api("/api/withdraw", { file: p.file, passage: p.id });
     } else await api("/api/approve", { file: p.file, passage: p.id, hunks: "all", seen: p.hs.map(h => [h.old, h.neu]) });
@@ -630,10 +673,10 @@ document.addEventListener("keydown", ev => {
   if (ev.repeat || ev.target.closest("textarea, input") || ev.metaKey || ev.ctrlKey || ev.altKey) return;
   if (ev.key === "j") focusCard(cur + 1);
   if (ev.key === "k") focusCard(Math.max(0, cur - 1));
-  const card = cur >= 0 && document.getElementById("p-" + changed[cur]?.id);
+  const card = cur >= 0 && document.getElementById("p-" + cards[cur]?.id);
   // a approves or commits; withdrawing is the button's alone.
-  if (ev.key === "a" && card && !committed(changed[cur])) $('[data-act="approve"]', card).click();
-  if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", first(changed[cur])); }
+  if (ev.key === "a" && card && !committed(cards[cur])) $('[data-act="approve"]', card)?.click();
+  if (ev.key === "c" && card) { ev.preventDefault(); openComposer(card, "", first(cards[cur])); }
 });
 
 try { texOn = localStorage.getItem("review-tex") !== "0"; } catch (_) {}
@@ -646,8 +689,8 @@ $("#tex").onchange = ev => {
 $("#only").onchange = ev => $("#doc").classList.toggle("changes-only", ev.target.checked);
 
 // Locate a card after a re-render: by id, or, when its text (and so its id)
-// changed, by its position among the changed passages.
-const findCard = (id, idx) => document.getElementById("p-" + id) || (changed[idx] && document.getElementById("p-" + changed[idx].id));
+// changed, by its position among the cards.
+const findCard = (id, idx) => document.getElementById("p-" + id) || (cards[idx] && document.getElementById("p-" + cards[idx].id));
 
 // The reader is selecting text: re-rendering now would drop the selection.
 const selecting = () => {
@@ -666,23 +709,23 @@ async function loadDoc(force = false) {
   shown = n; refsData = r;
   // Keep what the reader is doing across the re-render: the card at the top of
   // the screen and its offset, the focused card, and any comment being written.
-  const cards = [...document.querySelectorAll(".card")];
-  const top = cards.find(c => c.getBoundingClientRect().bottom > 60);
-  const anchor = top && { id: top.passage.id, idx: changed.indexOf(top.passage), y: top.getBoundingClientRect().top };
-  const focus = cur >= 0 && changed[cur] ? { id: changed[cur].id, idx: cur } : null;
+  const els = [...document.querySelectorAll(".card")];
+  const top = els.find(c => c.getBoundingClientRect().bottom > 60);
+  const anchor = top && { id: top.passage.id, idx: cards.indexOf(top.passage), y: top.getBoundingClientRect().top };
+  const focus = cur >= 0 && cards[cur] ? { id: cards[cur].id, idx: cur } : null;
   // A draft moves to the new cards whole: its text, caret and any send in flight go with it.
   const active = document.activeElement;
   const drafts = [...document.querySelectorAll(".composer")].map(b => {
     const p = b.closest(".card").passage;
     return [b, { passage: p.id, file: p.file, line: b.meta.line }];
   });
-  const before = new Set(changed.map(p => p.id));
+  const before = new Set(cards.map(p => p.id));
 
   doc = d; log = l; version = s.version; logLen = log.length;
   derive(); renderDoc();
 
-  if (before.size) for (const p of changed) if (!before.has(p.id)) document.getElementById("p-" + p.id).classList.add("fresh");
-  if (focus) { const c = findCard(focus.id, focus.idx); if (c) { cur = changed.indexOf(c.passage); c.classList.add("cur"); renderSide(); } }
+  if (before.size) for (const p of cards) if (!before.has(p.id)) document.getElementById("p-" + p.id).classList.add("fresh");
+  if (focus) { const c = findCard(focus.id, focus.idx); if (c) { cur = cards.indexOf(c.passage); c.classList.add("cur"); renderSide(); } }
   // To its passage, or to the one now at its line; focus goes back last, and only where it was.
   for (const [b, at] of drafts) document.getElementById("p-" + home(at))?.querySelector(".thread").before(b);
   if (active.isConnected && active.closest(".composer")) active.focus({ preventScroll: true });

@@ -26,7 +26,7 @@ Do what the comment asks, editing the files, under the rules of this repository'
 Then answer in 1 to 3 sentences: the changed sentence quoted in full, or your question. Nothing else."""
 MESSAGE_PROMPT = """Write the git commit message for the staged change (read it with git diff --cached), following the commit rules of this repository's CLAUDE.md files. The edits were made during a review and approved by the author. Output the message only."""
 MESSAGE = re.compile(r"(feat|fix|test|docs|refactor|tools)\([^()\n]+\)\n\n[^\n]+\n\n\S[\s\S]*")
-PAGE_TYPES = {"comment", "dismiss", "split", "delete"}
+PAGE_TYPES = {"comment", "dismiss", "split", "delete", "view"}
 # A reference, label, environment or inline math is one token, so a diff never
 # splits it and the page can render it.
 TOKEN = re.compile(r"\\(?:cite[a-z]*|ref|eqref|autoref|cref|label|path|url|begin|end|input|includegraphics)\*?"
@@ -1010,7 +1010,7 @@ def handler(review, port):
                         return self.send(400, {"error": "bad type"})
                     if body.get("model", MODEL) not in MODELS.values():
                         return self.send(400, {"error": "bad model"})
-                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "to", "model", "history") if k in body}
+                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "to", "model", "history", "passages", "show") if k in body}
                     e = review.append(keep)
                     review.enqueue(e)
                     return self.send(200, e)

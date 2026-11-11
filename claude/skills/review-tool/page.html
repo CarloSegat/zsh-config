@@ -76,7 +76,7 @@ button.approved { background: var(--ok); border-color: var(--ok); color: var(--b
 button:disabled { opacity: .5; cursor: not-allowed; }
 .thread:empty { display: none; }
 .thread { border-top: 1px solid var(--line); padding: 8px 14px 12px; display: grid; gap: 8px; }
-.note { font-size: 13.5px; }
+.note { font-size: 13.5px; scroll-margin-top: 64px; }
 .note .who { font-weight: 600; margin-right: 6px; }
 .note .who.claude { color: var(--accent); }
 .note .meta { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
@@ -303,13 +303,14 @@ function renderState() {
   // Only comments still waiting for Claude show; answered ones are done with.
   for (const c of S.open) {
     const n = note("You", c);
+    n.id = "c-" + c.id;
     if (info.worker) n.children[1].append(" · on it…");
     threads[home(c)]?.append(n);
   }
   for (const c of S.asked) {
     const th = threads[home(c)];
     if (!th) continue;
-    th.append(note("You", c));
+    th.append(Object.assign(note("You", c), { id: "c-" + c.id }));
     const r = note("Claude", S.replies[c.id].at(-1), "reply");
     r.append(el("div", {}, el("button", { "data-act": "dismiss", "data-id": c.id }, "Dismiss")));
     th.append(r);
@@ -340,7 +341,7 @@ function renderSide() {
   side.append(el("h2", {}, "Open comments"));
   if (!S.live.length) side.append(el("div", { class: "empty" }, "None"));
   for (const c of S.live) {   // a comment Claude answered with a question shows the question
-    const a = el("a", { href: "#p-" + home(c) }, el("span", { class: "dot open" }),
+    const a = el("a", { href: "#c-" + c.id }, el("span", { class: "dot open" }),
       el("span", { class: "where" }, `${c.file.split("/").pop()}:${c.line}`), el("span", { class: "gist" }, S.replies[c.id]?.at(-1).text ?? c.text));
     side.append(a);
   }

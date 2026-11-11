@@ -476,5 +476,16 @@ class PageTest(unittest.TestCase):
         self.assertEqual(until(lambda: p.js("$('.card').classList.contains('done')"), 5), True)
 
 
+    def test_open_comment_link_shows_the_comment_on_a_long_card(self):
+        long = "\n".join([PARA] * 6)   # a card taller than the window, its thread below the fold
+        p = self.start(work=BASE.replace("Omega", long + "\n\nOmega"))
+        self.append({"id": "c1", "type": "comment", "passage": p.js("changed[0].id"), "file": "doc.tex", "line": 5, "quote": "", "text": "Name the registry"})
+        self.append({"id": "r1", "type": "reply", "to": "c1", "text": "Which registry, the group's or the global one?", "edited": False})
+        until(lambda: p.js("!!$('.card .note.reply')", quiet=True), 5)
+        self.assertEqual(p.js("$('.card').offsetHeight > innerHeight"), True)
+        p.js("$('#side a').click()")
+        seen = "(r => r.top >= 0 && r.bottom <= innerHeight)($('.card .note.reply').getBoundingClientRect())"
+        self.assertEqual(until(lambda: p.js(seen), 3), True)
+
 if __name__ == "__main__":
     unittest.main()

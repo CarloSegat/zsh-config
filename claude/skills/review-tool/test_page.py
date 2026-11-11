@@ -487,5 +487,37 @@ class PageTest(unittest.TestCase):
         seen = "(r => r.top >= 0 && r.bottom <= innerHeight)($('.card .note.reply').getBoundingClientRect())"
         self.assertEqual(until(lambda: p.js(seen), 3), True)
 
+    # Block history: settled exchanges fold under History, and the composer can send them.
+
+    def test_history_folds_settled_exchanges_and_the_toggle_sends_them(self):
+        p = self.start()
+        at = {"passage": p.js("changed[0].id"), "file": "doc.tex", "line": 5, "quote": ""}
+        self.append({"id": "c1", "type": "comment", **at, "text": "Shorten it"})
+        self.append({"id": "r1", "type": "reply", "to": "c1", "text": "Cut the second sentence.", "edited": True})
+        self.append({"id": "k1", "type": "context", **at, "quote": "registry", "text": "The registry is the group's."})
+        self.append({"id": "c2", "type": "comment", **at, "text": "Name the registry"})
+        self.append({"id": "r2", "type": "reply", "to": "c2", "text": "Which registry?", "edited": False})
+        hist = "[...document.querySelectorAll('.card .history')].map(d => [d.open, $('summary', d).textContent, " \
+               "[...d.querySelectorAll('.note .body')].map(b => b.textContent)])"
+        live = "[...document.querySelectorAll('.card .thread > .note .body')].map(b => b.textContent)"
+        self.assertEqual(until(lambda: p.js(hist, quiet=True), 5),
+                         [[False, "History (2)", ["Shorten it", "Cut the second sentence.", "The registry is the group's."]]])
+        self.assertEqual(p.js(live), ["Name the registry", "Which registry?"])
+        p.js("$('.card .history summary').click(); $('[data-act=dismiss]').click()")
+        self.assertEqual(until(lambda: p.js(hist)[0][1] == "History (3)" and p.js(hist), 5),
+                         [[True, "History (3)", ["Shorten it", "Cut the second sentence.", "The registry is the group's.",
+                                                 "Name the registry", "Which registry?"]]])
+        self.assertEqual(p.js(live), [])
+        p.js("window.confirm = () => true; $('.history [data-id=k1]').click()")
+        self.assertEqual(until(lambda: p.js(hist)[0][1] == "History (2)" and p.js(hist), 5),
+                         [[True, "History (2)", ["Shorten it", "Cut the second sentence.", "Name the registry", "Which registry?"]]])
+        for check in (True, False):
+            n = len(self.log())
+            self.click(0, "note")
+            p.js(f"{{ const b = $('.composer'); $('textarea', b).value = 'Lowercase it'; "
+                 f"if ({str(check).lower()}) $('input[type=checkbox]', b).click(); $('.primary', b).click() }}")
+            until(lambda: len(self.log()) > n)
+        self.assertEqual([e.get("history") for e in self.log() if e["type"] == "comment"][-2:], [["c1", "c2"], None])
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,14 +19,14 @@ EDIT_TOOLS = "Read,Grep,Glob,Edit(./**)"   # edits inside the repo only; no shel
 COMMENT_PROMPT = """A reviewer of the uncommitted text changes in this repository left a comment on {file}, near line {line}.
 
 Selected text: {quote}
-Comment: {text}
+Comment: {text}{history}
 
 Do what the comment asks, editing the files, under the rules of this repository's CLAUDE.md files. A deletion the comment asks for is approved by the comment. Do not commit. If the comment needs a decision the files cannot settle, change nothing and ask.
 
 Then answer in 1 to 3 sentences: the changed sentence quoted in full, or your question. Nothing else."""
 MESSAGE_PROMPT = """Write the git commit message for the staged change (read it with git diff --cached), following the commit rules of this repository's CLAUDE.md files. The edits were made during a review and approved by the author. Output the message only."""
 MESSAGE = re.compile(r"(feat|fix|test|docs|refactor|tools)\([^()\n]+\)\n\n[^\n]+\n\n\S[\s\S]*")
-PAGE_TYPES = {"comment", "dismiss", "split"}
+PAGE_TYPES = {"comment", "dismiss", "split", "delete"}
 # A reference, label, environment or inline math is one token, so a diff never
 # splits it and the page can render it.
 TOKEN = re.compile(r"\\(?:cite[a-z]*|ref|eqref|autoref|cref|label|path|url|begin|end|input|includegraphics)\*?"
@@ -745,6 +745,23 @@ class Review:
             raise RuntimeError((result or {}).get("result") or r.stderr[-500:] or "claude -p failed")
         return {**result, "edits": edits(events)}
 
+    def history(self, ids):
+        """The comments (with Claude's replies) and contextualizations ids names,
+        oldest first, as a comment's prompt quotes them."""
+        log, ids = self.log(), set(ids)
+        replies = {}
+        for e in log:
+            if e["type"] == "reply":
+                replies.setdefault(e["to"], []).append(e)
+        out = []
+        for e in log:
+            if e["id"] in ids and e["type"] == "comment":
+                out.append(f"Reviewer, on: {e.get('quote') or '(the whole passage)'}\n{e['text']}")
+                out += [f"Claude: {r['text']}" for r in replies.get(e["id"], [])]
+            elif e["id"] in ids and e["type"] == "context":
+                out.append(f"Reviewer asked for context on: {e['quote']}\nClaude: {e['text']}")
+        return "\n\n".join(out)
+
     def contextualize(self, body):
         result = self.claude(f"/contextualize {body['quote']}\n\n(It is in {body['file']}, near line {body['line']}.)",
                              CONTEXT_TOOLS)
@@ -846,8 +863,11 @@ class Review:
     def answer(self, c):
         model, edited = c.get("model", MODEL), set()
         try:
+            earlier = self.history(c.get("history") or [])
             r = self.claude(COMMENT_PROMPT.format(file=c["file"], line=c["line"], text=c["text"],
-                                                  quote=c.get("quote") or "(none: the whole passage)"), EDIT_TOOLS, model)
+                                                  quote=c.get("quote") or "(none: the whole passage)",
+                                                  history=earlier and "\n\nEarlier exchanges on this passage, oldest first "
+                                                  "(the text may have changed since):\n\n" + earlier), EDIT_TOOLS, model)
             text, cost = r["result"], r.get("total_cost_usd")
             edited = {(self.repo / f).resolve() for f in r["edits"]}
         except Exception as e:
@@ -990,7 +1010,7 @@ def handler(review, port):
                         return self.send(400, {"error": "bad type"})
                     if body.get("model", MODEL) not in MODELS.values():
                         return self.send(400, {"error": "bad model"})
-                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "to", "model") if k in body}
+                    keep = {k: body[k] for k in ("type", "passage", "file", "line", "quote", "text", "to", "model", "history") if k in body}
                     e = review.append(keep)
                     review.enqueue(e)
                     return self.send(200, e)

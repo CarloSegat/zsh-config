@@ -91,6 +91,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }
 .composer .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 .composer .row .hint { color: var(--muted); font-size: 11.5px; margin-right: auto; }
+.composer .row label { color: var(--muted); font-size: 12.5px; display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.history summary { color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.history[open] { display: grid; gap: 8px; }
 [hidden] { display: none !important; }   /* else #tool's and #hmenu's display: flex keeps them on screen */
 #tool, #hmenu { position: absolute; z-index: 10; display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; padding: 4px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
@@ -156,19 +159,24 @@ let info, doc, log = [], version = null, logLen = -1, cur = -1, pending = null, 
 let changed = [];        // changed passages in reading order
 let S = {};              // state derived from the log
 const inflight = new Set();  // contextualize requests still running
+const histOpen = new Set();  // passages whose History is unfolded
 
 function derive() {
-  S = { queued: new Set(), comments: [], replies: {}, dismissed: new Set(), commits: {}, contexts: [], spent: 0, open: [], asked: [] };
+  S = { queued: new Set(), comments: [], replies: {}, dismissed: new Set(), deleted: new Set(), commits: {}, talk: [], spent: 0, open: [], asked: [] };
   for (const e of log) {
     // A passage approved whole waits for its commit (review.py commit()).
     if (e.type === "approve") S.queued.add(e.passage);
     if (e.type === "unapprove") S.queued.delete(e.passage);
     if (e.type === "comment") S.comments.push(e);
+    // A passage's conversation: its comments and contextualizations, in log order.
+    if (e.type === "comment" || e.type === "context") S.talk.push(e);
     if (e.type === "reply") { (S.replies[e.to] ||= []).push(e); S.spent += e.cost || 0; }
     if (e.type === "dismiss") S.dismissed.add(e.to);
+    if (e.type === "delete") S.deleted.add(e.to);
     if (e.type === "commit") { S.queued.delete(e.passage); S.commits[e.passage] = e; S.spent += e.cost || 0; }
-    if (e.type === "context") { S.contexts.push(e); S.spent += e.cost || 0; }
+    if (e.type === "context") S.spent += e.cost || 0;
   }
+  S.talk = S.talk.filter(e => !S.deleted.has(e.id));   // deleted from History: never shown or sent again
   S.open = S.comments.filter(e => !S.replies[e.id]);
   // Answered without an edit (a question, a refusal, a failure): shown until dismissed.
   S.asked = S.comments.filter(e => S.replies[e.id]?.at(-1).edited === false && !S.dismissed.has(e.id));
@@ -300,7 +308,23 @@ function renderState() {
   const threads = {};
   for (const p of changed) threads[p.id] = $(".thread", document.getElementById("p-" + p.id));
   for (const th of Object.values(threads)) th.replaceChildren();
-  // Only comments still waiting for Claude show; answered ones are done with.
+  // Settled exchanges (answered comments, contextualizations), oldest first, folded under History.
+  const past = {};
+  for (const e of S.talk) if (!S.live.includes(e)) (past[home(e)] ||= []).push(e);
+  for (const [pid, es] of Object.entries(past)) {
+    if (!threads[pid]) continue;
+    const d = el("details", { class: "history" }, el("summary", {}, `History (${es.length})`));
+    d.open = histOpen.has(pid);
+    d.ontoggle = () => d.open ? histOpen.add(pid) : histOpen.delete(pid);
+    for (const e of es) {
+      const ns = e.type === "context" ? [note("Context", e)]
+        : [note("You", e), ...(S.replies[e.id] || []).map(r => note("Claude", r, "reply"))];
+      ns.at(-1).append(el("div", {}, el("button", { "data-act": "delete", "data-id": e.id }, "Delete")));
+      d.append(...ns);
+    }
+    threads[pid].append(d);
+  }
+  // Comments still waiting for Claude or for the reader show below History.
   for (const c of S.open) {
     const n = note("You", c);
     n.id = "c-" + c.id;
@@ -315,7 +339,6 @@ function renderState() {
     r.append(el("div", {}, el("button", { "data-act": "dismiss", "data-id": c.id }, "Dismiss")));
     th.append(r);
   }
-  for (const c of S.contexts) threads[home(c)]?.append(note("Context", c));
   for (const q of inflight) threads[home(q)]?.append(waiting(q));
   for (const p of changed) {
     const card = document.getElementById("p-" + p.id);
@@ -390,8 +413,11 @@ function openComposer(card, quote, line) {
     return b;
   });
   const cancel = el("button", {}, "Cancel");
+  const withHistory = el("input", { type: "checkbox" });
   const box = el("div", { class: "composer" }, quote ? el("blockquote", {}, quote) : null, ta,
     el("div", { class: "row" }, el("span", { class: "hint" }, `⌘/Ctrl+Enter sends to ${models[0][0]} · Esc to cancel`),
+      el("label", { title: "Also send Claude the earlier comments, replies and contextualizations on this passage" },
+        withHistory, "Send full block history"),
       cancel, ...sends.reverse()));
   box.meta = { quote, line };
   $(".text", card).after(box);
@@ -401,7 +427,8 @@ function openComposer(card, quote, line) {
     sends.forEach(b => b.disabled = true);
     const p = box.closest(".card").passage;   // a re-render may have moved the draft (loadDoc)
     try {
-      await post({ type: "comment", passage: p.id, file: p.file, line, quote, model, text: ta.value.trim() });
+      const history = withHistory.checked ? { history: S.talk.filter(e => home(e) === p.id).map(e => e.id) } : {};
+      await post({ type: "comment", passage: p.id, file: p.file, line, quote, model, text: ta.value.trim(), ...history });
       renderState(); box.remove();
     } catch (err) { sends.forEach(b => b.disabled = false); alertIn(box, err); }
   };
@@ -433,7 +460,7 @@ async function contextualize(card, quote, line) {
   inflight.add(q); renderState();
   try {
     const e = await api("/api/contextualize", q);
-    inflight.delete(q); add(e); renderState();
+    inflight.delete(q); add(e); histOpen.add(home(e)); renderState();
   } catch (err) {
     inflight.delete(q); renderState();
     const th = $(".thread", document.getElementById("p-" + home(q)) || card);
@@ -571,6 +598,8 @@ $("#doc").addEventListener("click", ev => {
   const p = card.passage;
   if (act === "note") openComposer(card, "", first(p));
   if (act === "dismiss") run(card, () => post({ type: "dismiss", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }));
+  if (act === "delete" && confirm("Delete this exchange from the passage's history? Claude no longer gets it with the block history."))
+    run(card, () => post({ type: "delete", to: ev.target.dataset.id, passage: p.id, file: p.file, line: p.start }));
   if (act === "approve") run(card, async () => {
     if (pOk(p) && p.dirty && S.queued.has(p.id)) return;   // committing already
     if (committed(p)) {

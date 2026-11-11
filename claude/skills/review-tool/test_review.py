@@ -297,6 +297,22 @@ class Worker(Case):
         self.assertIs(self.run_answer(rv, failed, lambda: None), False)
 
 
+    def test_answer_quotes_the_block_history_it_was_sent(self):
+        rv = self.make("Alpha one.\n", "Alpha ONE.\n")
+        at = {"passage": "x", "file": "f.tex", "line": 1}
+        c = rv.append({"type": "comment", **at, "quote": "ONE", "text": "Why caps?"})
+        rv.append({"type": "reply", "to": c["id"], "text": "Emphasis. Keep it?", "edited": False})
+        k = rv.append({"type": "context", **at, "quote": "Alpha", "text": "Alpha is the first group."})
+        rv.append({"type": "comment", **at, "quote": "", "text": "Not sent"})
+        prompts = []
+        rv.claude = lambda prompt, tools, model=review.MODEL: prompts.append(prompt) or {"result": "Done.", "edits": []}
+        for ids in ([], [k["id"], c["id"]]):
+            rv.answer(rv.append({"type": "comment", **at, "quote": "", "text": "Lowercase it", "history": ids}))
+        self.assertIn("Comment: Lowercase it\n\nDo what", prompts[0])
+        self.assertIn("Comment: Lowercase it\n\nEarlier exchanges on this passage, oldest first (the text may have changed since):\n\n"
+                      "Reviewer, on: ONE\nWhy caps?\n\nClaude: Emphasis. Keep it?\n\n"
+                      "Reviewer asked for context on: Alpha\nClaude: Alpha is the first group.\n\nDo what", prompts[1])
+
 # A paragraph inserted between 2 kept ones: 1 passage of 1 hunk, base text "".
 L = ["Membership changes go through the governance group vote and take effect at once.",
      "A member that leaves loses its rights immediately after the vote closes.",

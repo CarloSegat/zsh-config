@@ -50,6 +50,8 @@ Fix language and LaTeX errors directly. Never fix a factual or consistency error
 
 ## 5. Report
 
+- **Original:** the paragraph as it was, verbatim LaTeX source, in a code block.
+- **Rewrite:** the paragraph as it is now, final and paste-ready, in a code block right after, so the 2 compare side by side.
 - **Changes:** one line per edited sentence, saying what got easier.
 - **Errors:** `file:line`, what is wrong, the evidence (`source:line` or URL), the proposed fix.
 - **Questions:** deletions and factual fixes, through AskUserQuestion.

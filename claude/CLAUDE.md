@@ -24,7 +24,7 @@ Scripts in `~/.config/claude/`, run them instead of reimplementing:
 - `mcp-sync.sh`: copies `mcp.json` (source of truth for user-scope MCP servers) into `~/.claude.json`, the only place Claude Code reads them from. Run after editing `mcp.json`; never `claude mcp add --scope user` directly.
 - `list-sessions.sh`: lists Claude Code sessions (size, date, project, title). Run when asked about past sessions, session names, or disk use.
 - `rm-session.sh <id> [--yes]`: deletes one session everywhere (transcript, tasks, file-history, session-env, temp, history.jsonl, `.claude.json`), refuses live sessions. Dry run without `--yes`. Run when asked to delete or clean up a session.
-- `console-task.sh plan|commits <task folder> [max usd, default 10]`: runs `/task-plan` or `/task-commits` headless on Opus, billed to Console credits (ant profile `default`), `qwen-worker` on Sonnet. Run when asked to plan on Console or API credits; prints the skill's final message and the cost.
+- `console-task.sh plan|commits <task folder> [max usd, default 10]`: runs `/task-plan` or `/task-commits` headless on Opus (`MODEL=fable` for Fable), billed to Console credits (ant profile `default`), `qwen-worker` on Sonnet. Run when asked to plan on Console or API credits; prints the skill's final message and the cost.
 - `stall-watch.sh <minutes> <path>... [-- <process-name regex>]`: exits when delegated work stalls (no file change under the paths, no matching process). Start it in the background whenever an agent reports it is waiting.
 
 Auto-invoked scripts (don't run by hand, wired in `settings.json`):

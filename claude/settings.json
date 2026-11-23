@@ -1,5 +1,10 @@
 {
   "syncClaudeAiSkills": false,
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
       "Bash(find *)",
@@ -126,10 +131,5 @@
   "skipWorkflowUsageWarning": true,
   "switchModelsOnFlag": true,
   "agentPushNotifEnabled": true,
-  "voiceEnabled": true,
-  "attribution": {
-    "commit": "",
-    "pr": "",
-    "sessionUrl": false
-  }
+  "voiceEnabled": true
 }

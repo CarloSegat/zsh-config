@@ -31,5 +31,7 @@ git -C "$g" worktree add -q --detach "$wt" "$(resolve "$g" "$ref")"
 git -C "$s" worktree add -q --detach "$gwt" "$(resolve "$s" "$gs_ref")"
 echo "box-test: emoji-godot $ref @ $(git -C "$wt" rev-parse --short=8 HEAD), emoji-gs $gs_ref @ $(git -C "$gwt" rev-parse --short=7 HEAD): make $*"
 cd "$wt"
+# a fresh worktree has no .godot cache; the gates (menu-census) need one
+godot --headless --path . --import > .box-test-import.log 2>&1 || { tail -20 .box-test-import.log; exit 1; }
 make --no-print-directory "$@" GS_REPO="$gwt"
 REMOTE

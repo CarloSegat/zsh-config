@@ -12,11 +12,13 @@ BOX=${BOX:-car-ms-7885}
 [ $# -ge 1 ] || { sed -n 2,9p "$0" >&2; exit 2; }
 ref=$1; shift
 [ $# -ge 1 ] || set -- test
-if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "$BOX" true 2>/dev/null; then
+# two runs starting seconds apart can get one ssh refused: retry before calling the box down
+reach() { for i in 1 2 3; do ssh -o ConnectTimeout=10 -o BatchMode=yes "$BOX" true 2>/dev/null && return; sleep $((i * 10)); done; return 1; }
+if ! reach; then
 	echo "box-test: $BOX unreachable; no tests on the Mac (owner rule, 2026-11-23)" >&2
 	exit 75
 fi
-ssh "$BOX" bash -s -- "$ref" "${GS_REF:-main}" "$@" <<'REMOTE'
+ssh -o ConnectionAttempts=3 "$BOX" bash -s -- "$ref" "${GS_REF:-main}" "$@" <<'REMOTE'
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 ref=$1 gs_ref=$2; shift 2
